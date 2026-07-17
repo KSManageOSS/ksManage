@@ -2,11 +2,11 @@
 
 import collections
 from ksmanage_sdk.command import RestFunc
-from ksmanage_sdk.interface.CommonM6 import CommonM6
+from ksmanage_sdk.interface.CommonX1 import CommonX1
 from ksmanage_sdk.interface.ResEntity import ResultBean
 
 
-class CommonM6_41401(CommonM6):
+class CommonX1_41401(CommonX1):
 
     def setpdisk(self, client, args):
         # login

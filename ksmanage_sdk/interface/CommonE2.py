@@ -3,7 +3,7 @@ import sys
 import os
 
 from ksmanage_sdk.command import RestFunc, IpmiFunc
-from ksmanage_sdk.interface.CommonM7 import CommonM7
+from ksmanage_sdk.interface.CommonX2 import CommonX2
 from ksmanage_sdk.interface.ResEntity import (
     ResultBean,
     fwBean,
@@ -13,11 +13,7 @@ from ksmanage_sdk.interface.ResEntity import (
 retry_count = 0
 
 
-class CommonA7(CommonM7):
-    def _get_xml_file(self):
-        xml_path = os.path.join(IpmiFunc.command_path, "bios") + os.path.sep
-        return xml_path + 'A7.xml'
-
+class CommonE2(CommonX2):
     def setpowerbudget(self, client, args):
         result = ResultBean()
         result.State("Not Support")

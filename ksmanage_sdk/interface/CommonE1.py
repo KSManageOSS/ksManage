@@ -3,11 +3,11 @@
 from __future__ import (absolute_import, division, print_function)
 __metaclass__ = type
 
-from ksmanage_sdk.interface.CommonM5 import CommonM5
+from ksmanage_sdk.interface.Common import Common
 from ksmanage_sdk.interface.ResEntity import ResultBean
 
 
-class CommonA5(CommonM5):
+class CommonE1(Common):
 
     def clearsystemlog(self, client, args):
         result = ResultBean()
@@ -58,18 +58,6 @@ class CommonA5(CommonM5):
         return result
 
     def collectblackbox(self, client, args):
-        result = ResultBean()
-        result.State("Not Support")
-        result.Message(['The A5 model does not support this feature.'])
-        return result
-
-    def exportbioscfg(self, client, args):
-        result = ResultBean()
-        result.State("Not Support")
-        result.Message(['The A5 model does not support this feature.'])
-        return result
-
-    def importbioscfg(self, client, args):
         result = ResultBean()
         result.State("Not Support")
         result.Message(['The A5 model does not support this feature.'])

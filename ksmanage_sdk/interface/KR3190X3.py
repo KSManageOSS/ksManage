@@ -1,9 +1,9 @@
 # -*- coding:utf-8 -*-
 
-from ksmanage_sdk.interface.CommonM8 import CommonM8
+from ksmanage_sdk.interface.CommonM8 import CommonX3
 from ksmanage_sdk.util import RedfishTemplate
 
-class NF3290M8(CommonM8):
+class KR3190X3(CommonX3):
 
     #任务列表
     task_dict = {

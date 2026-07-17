@@ -930,14 +930,6 @@ def service(client, path_service):
     return 1, " "
 
 
-def bios(client, path_bios):
-    responds = RestFunc.exportBiosCfgByRest(client, path_bios)
-    if responds['code'] == 0 and responds['data'] is not None:
-        return 1, 'ok'
-    else:
-        return -2, 'import bios option failed. '
-
-
 def delusergroup(client, args, delName):
     for item in delName:
         argsList = {}

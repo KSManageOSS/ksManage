@@ -116,60 +116,6 @@ class IBase():
         :return:
         """
 
-    def getbios(self, client, args):
-        """
-
-        :return:
-        """
-
-    def setbios(self, client, args):
-        """
-
-        :return:
-        """
-
-    def setbiospwd(self, client, args):
-        """
-
-        :return:
-        """
-
-    def getbiossetting(self, client, args):
-        """
-
-        :return:
-        """
-
-    def getbiosresult(self, client, args):
-        """
-
-        :return:
-        """
-
-    def getbiosdebug(self, client, args):
-        """
-
-        :return:
-        """
-
-    def clearbiospwd(self, client, args):
-        """
-
-        :return:
-        """
-
-    def restorebios(self, client, args):
-        """
-
-        :return:
-        """
-
-    def setbiosdebug(self, client, args):
-        """
-
-        :return:
-        """
-
     def mountvmm(self, client, args):
         """
 
@@ -440,18 +386,6 @@ class IBase():
         :return:
         """
 
-    def exportbioscfg(self, client, args):
-        """
-
-        :return:
-        """
-
-    def importbioscfg(self, client, args):
-        """
-
-        :return:
-        """
-
     def delvncsession(self, client, args):
         """
 
@@ -567,6 +501,30 @@ class IBase():
         """
 
     def gethba(self, client, args):
+        """
+
+        :return:
+        """
+
+    def getbios(self, client, args):
+        """
+
+        :return:
+        """
+
+    def setbios(self, client, args):
+        """
+
+        :return:
+        """
+
+    def exportbioscfg(self, client, args):
+        """
+
+        :return:
+        """
+
+    def importbioscfg(self, client, args):
         """
 
         :return:

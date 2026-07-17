@@ -41,19 +41,7 @@ setdns = {
     'registration_method2': 'registrationMethod2',
 }
 
-exportbioscfg = {
-    'file_url': 'fileurl'
-}
-
-importbioscfg = {
-    'file_url': 'fileurl'
-}
-
 collectblackbox = {
-    'file_url': 'fileurl'
-}
-
-setbios = {
     'file_url': 'fileurl'
 }
 
@@ -256,13 +244,10 @@ def getParam(dictobj):
     param = {
         'setsmtp': setsmtp,
         'setdns': setdns,
-        'exportbioscfg': exportbioscfg,
         'addldisk': addldisk,
         'adduser': adduser,
         'getauditlog': getauditlog,
-        'importbioscfg': importbioscfg,
         'collectblackbox': collectblackbox,
-        'setbios': setbios,
         'fancontrol': fancontrol,
         'setldisk': setldisk,
         'setpdisk': setpdisk,
