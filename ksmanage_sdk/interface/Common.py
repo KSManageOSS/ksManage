@@ -644,14 +644,13 @@ class DICTVALUE():
             return 'Unknown DeviceType '+str(var)
 
 
-class CommonM5(Base):
+class Common(Base):
 
     def getcapabilities(self, client, args):
         res = ResultBean()
         cap = CapabilitiesBean()
         getcomand = [
             'getadaptiveport',
-            'getbios',
             'getcapabilities',
             'getcpu',
             'geteventlog',
@@ -680,8 +679,6 @@ class CommonM5(Base):
             'getfirewall',
             'gethealthevent']
         getcomand_not_support = [
-            'getbiossetting',
-            'getbiosresult',
             'geteventsub',
             'getpwrcap',
             'getmgmtport',
@@ -690,7 +687,6 @@ class CommonM5(Base):
             'getvnc',
             'getvncsession',
             'gettaskstate',
-            'getbiosdebug',
             'getthreshold',
             'get80port']
         setcommand = [
@@ -709,7 +705,6 @@ class CommonM5(Base):
             'sendipmirawcmd',
             'settimezone',
             'settrapcom',
-            'setbios',
             'setip',
             'setpriv',
             'setpwd',
@@ -720,10 +715,7 @@ class CommonM5(Base):
             'settime',
             'setproductserial']
         setcommand_ns = [
-            'setbiospwd',
             'sethsc',
-            'clearbiospwd',
-            'restorebios',
             'setfirewall',
             'setimageurl',
             'setadaptiveport',
@@ -737,11 +729,8 @@ class CommonM5(Base):
             'delvncsession',
             'downloadsol',
             'exportbmccfg',
-            'exportbioscfg',
-            'importbioscfg',
             'importbmccfg',
-            'canceltask',
-            'setbiosdebug']
+            'canceltask']
         cap.GetCommandList(getcomand)
         cap.SetCommandList(setcommand)
         res.State('Success')
@@ -1340,106 +1329,14 @@ class CommonM5(Base):
 
     def getsysboot(self, client, args):
         res = Base.getsysboot(self, client, args)
-        if res.State == "Success":
-            biosaAttribute = res.Message[0]
-            args.bootmodeflag = True
-            result = self.getbios(client, args)
-            if result.State == "Success" and len(result.Message) > 0:
-                bootmodedict = result.Message[0]
-                for key in bootmodedict:
-                    if "Legacy" in str(bootmodedict.get(key)):
-                        biosaAttribute['BootMode'] = "Legacy"
-                    elif "UEFI" in str(bootmodedict.get(key)):
-                        biosaAttribute['BootMode'] = "UEFI"
         return res
 
     def setsysboot(self, client, args):
-        if args.effective is None and args.device is None and args.mode is None:
+        if args.effective is None and args.device is None:
             res = {}
             res['State'] = "Success"
             res['Message'] = ["nothing to change"]
             return res
-        if args.mode is not None:
-            biosinfo = ""
-            Bios_result = ResultBean()
-            xml_path = os.path.join(IpmiFunc.command_path, "bios")
-            # 不再多调用HostTypeJudge，直接调用IpmiFunc
-            # 根据productname获取xml文件
-            # hostTypeClient = HostTypeJudge.HostTypeClient()
-            # get productName,BMC Version
-            # productName, firmwareVersion = hostTypeClient.getProductNameByIPMI(args)
-
-            productName = IpmiFunc.getProductNameByIpmi(client)
-            if productName is None:
-                res = {}
-                res['State'] = "Not Support"
-                res['Message'] = ["cannot get productName"]
-                return res
-            elif productName == 'NF5288M5' or productName == "NF8480M5":
-                biosVersion = getbiosVersion(client)
-                if biosVersion is None:
-                    Bios_result.State("Failure")
-                    Bios_result.Message(
-                        ["get bios version failed,please check the power status."])
-                    return Bios_result
-                elif productName == 'NF5288M5':
-                    biosver = biosVersion.replace(".", "_")
-                    xmlfilepath = xml_path + os.path.sep + productName + "_" + biosver + ".xml"
-                elif productName == 'NF8480M5':
-                    biosVersion_split = biosVersion.split('.')
-                    if len(biosVersion_split) == 3 and int(
-                            biosVersion_split[1]) == 0 and int(
-                        biosVersion_split[2]) >= 4:
-                        xmlfilepath = xml_path + os.path.sep + productName + ".xml"
-                    elif len(biosVersion_split) == 3 and int(biosVersion_split[1]) == 1 and int(
-                            biosVersion_split[2]) >= 0 and int(biosVersion_split[2]) <= 6:
-                        xmlfilepath = xml_path + os.path.sep + productName + "_" + "411" + ".xml"
-                    elif biosVersion in ["4.1.07"]:
-                        xmlfilepath = xml_path + os.path.sep + productName + "_" + "417" + ".xml"
-                    else:
-                        xmlfilepath = xml_path + os.path.sep + productName + "_" + biosVersion + ".xml"
-            else:
-                xmlfilepath = xml_path + os.path.sep + productName + ".xml"
-            if os.path.exists(xmlfilepath) is False:
-                if productName == "NF5288M5" or productName == "NF8480M5":
-                    Bios_result.Message(
-                        ["Not Supported current bios version: {0}.".format(biosVersion)])
-                else:
-                    Bios_result.Message(
-                        ["Not Supported ProductName " + productName])
-                Bios_result.State('Failure')
-                return Bios_result
-
-            # 根据路径读取xml文件，得到全部的信息字典列表infoList
-            biosconfutil = configUtil.configUtil()  # 实例化类对象
-            blongtoSet, descriptionList, infoList = biosconfutil.getSetOption(
-                xmlfilepath)  # 读取xml文件，返回信息
-
-            for info in infoList:
-                info_str = str(info)
-                if "Legacy" in info_str and "UEFI" in info_str:
-                    setlist = info.get("setter")
-                    for setcmd in setlist:
-                        if args.mode in setcmd.get("value"):
-                            bios_Info = IpmiFunc.setM5BiosByipmi(
-                                client, setcmd.get("cmd"))
-                            if bios_Info and bios_Info.get('code') == 0:
-                                break
-                            else:
-                                Bios_result.State('Failure')
-                                Bios_result.Message(
-                                    ["set boot mode failed, please check the power and bios status."])
-                                return Bios_result
-            # 全部执行完成之后，执行生效的命令
-            bios_effective = IpmiFunc.setM5BiosEffectiveByipmi(client)
-            if bios_effective and bios_effective.get('code') == 0:
-                biosinfo = "set boot mode success"
-            else:
-                Bios_result.State('Failure')
-                Bios_result.Message(
-                    ["failed to execute an order to make boot mode effective."])
-                return Bios_result
-
         # 只输入一个则补全另一个
         if args.device is None and args.effective is not None:
             result = ResultBean()
@@ -1476,11 +1373,6 @@ class CommonM5(Base):
                 result.Message([boot_set.get('data')])
             # logout
             RestFunc.logout(client)
-            return result
-        elif args.effective is None and args.device is None:
-            result = ResultBean()
-            result.State("Success")
-            result.Message([biosinfo])
             return result
 
     def geteventlog(self, client, args):
@@ -2097,388 +1989,6 @@ class CommonM5(Base):
         # logout
         RestFunc.logout(client)
         return nicRes
-
-    def getbios(self, client, args):
-        """
-        get bios
-        :param client:
-        :param args:
-        :return:
-        """
-        Bios_result = ResultBean()
-        xml_path = os.path.join(IpmiFunc.command_path, "bios")
-        # 不再多调用HostTypeJudge，直接调用IpmiFunc
-        # 根据productname获取xml文件
-        # hostTypeClient = HostTypeJudge.HostTypeClient()
-        # get productName,BMC Version
-        # productName, firmwareVersion = hostTypeClient.getProductNameByIPMI(args)
-
-        productName = IpmiFunc.getProductNameByIpmi(client)
-        if productName is None:
-            res = {}
-            res['State'] = "Not Support"
-            res['Message'] = ["cannot get productName"]
-            return res
-        elif productName == 'NF5288M5' or productName == "NF8480M5":
-            biosVersion = getbiosVersion(client)
-            if biosVersion is None:
-                Bios_result.State("Failure")
-                Bios_result.Message(
-                    ["get bios version failed,please check the power status."])
-                return Bios_result
-            elif productName == 'NF5288M5':
-                biosver = biosVersion.replace(".", "_")
-                xmlfilepath = xml_path + os.path.sep + productName + "_" + biosver + ".xml"
-            elif productName == 'NF8480M5':
-                biosVersion_split = biosVersion.split('.')
-                if len(biosVersion_split) == 3 and int(
-                        biosVersion_split[1]) == 0 and int(
-                    biosVersion_split[2]) >= 4:
-                    xmlfilepath = xml_path + os.path.sep + productName + ".xml"
-                elif len(biosVersion_split) == 3 and int(biosVersion_split[1]) == 1 and int(
-                        biosVersion_split[2]) >= 0 and int(biosVersion_split[2]) <= 6:
-                    xmlfilepath = xml_path + os.path.sep + productName + "_" + "411" + ".xml"
-                elif biosVersion in ["4.1.07"]:
-                    xmlfilepath = xml_path + os.path.sep + productName + "_" + "417" + ".xml"
-                else:
-                    xmlfilepath = xml_path + os.path.sep + productName + "_" + biosVersion + ".xml"
-        else:
-            xmlfilepath = xml_path + os.path.sep + productName + ".xml"
-        if os.path.exists(xmlfilepath) is False:
-            if productName == "NF5288M5" or productName == "NF8480M5":
-                Bios_result.Message(
-                    ["Not Supported current bios version: {0}.".format(biosVersion)])
-            else:
-                Bios_result.Message(
-                    ["Not Supported ProductName " + productName])
-            Bios_result.State('Failure')
-            return Bios_result
-
-        # 根据路径读取xml文件，得到全部的信息字典列表infoList
-        biosconfutil = configUtil.configUtil()  # 实例化类对象
-        blongtoSet, descriptionList, infoList = biosconfutil.getSetOption(
-            xmlfilepath)  # 读取xml文件，返回信息
-        # for bootmode only
-        if "bootmodeflag" in vars(args):
-            infoList2 = []
-            for info in infoList:
-                if info.get("description") == "BootMode":
-                    infoList2.append(info)
-                    break
-                if info.get("description") == "BootType":
-                    infoList2.append(info)
-                    break
-            infoList = infoList2
-
-        class MyThread(threading.Thread):
-
-            def __init__(self, func, args):
-                super(MyThread, self).__init__()
-                self.func = func
-                self.args = args
-
-            def run(self):
-                self.result = self.func(*self.args)
-
-            def get_result(self):
-                try:
-                    return self.result
-                except Exception:
-                    return {}
-
-        # starttime = datetime.datetime.now()
-        biosaAttribute = {}
-
-        threads = []
-        # thread_max = threading.BoundedSemaphore(5)
-        # for i in range(len(infoList)):
-        #     thread_max.acquire()
-        #     # t = MyThread(getBiosAll, args=(client, [infoList[i]]))
-        #     t = threading.Thread(target=getBiosAll, args=(client, [infoList[i]]))
-        #     t.start()
-        #     threads.append(t)
-        # for t in threads:
-        #     t.join()
-        # dict.update(t.get_result())
-        num = 20
-        num_loc = int(len(infoList) / num)
-        for i in range(num):
-            t1 = i * num_loc
-            t2 = (i + 1) * num_loc
-            t1_infolist = infoList[t1:t2]
-            t_bios = MyThread(getBiosAll, args=(client, t1_infolist))
-            threads.append(t_bios)
-        if (num * num_loc) < len(infoList):
-            t_bios = MyThread(getBiosAll, args=(
-                client, infoList[num * num_loc:]))
-            threads.append(t_bios)
-        for t in threads:
-            t.start()
-        for t in threads:
-            t.join()
-            biosaAttribute.update(t.get_result())
-
-        # endtime = datetime.datetime.now()
-        # during = endtime-starttime
-        Bios_result.Message([biosaAttribute])
-        Bios_result.State('Success')
-        return Bios_result
-
-    def setbios(self, client, args):
-        """
-        set bios
-        :param client:
-        :param args:
-        :return:
-        """
-        Bios_result = ResultBean()
-        # 不再多调用HostTypeJudge，直接调用IpmiFunc
-        # 根据productname获取xml文件
-        # hostTypeClient = HostTypeJudge.HostTypeClient()
-        # get productName,BMC Version
-        # productName, firmwareVersion = hostTypeClient.getProductNameByIPMI(args)
-
-        productName = IpmiFunc.getProductNameByIpmi(client)
-        xml_path = os.path.join(IpmiFunc.command_path, "bios")
-        if productName is None:
-            res = {}
-            res['State'] = "Not Support"
-            res['Message'] = ["cannot get productName"]
-            return res
-        elif productName == 'NF5288M5' or productName == "NF8480M5":
-            biosVersion = getbiosVersion(client)
-            if biosVersion is None:
-                Bios_result.State("Failure")
-                Bios_result.Message(
-                    ["get bios version failed, please check the power status."])
-                return Bios_result
-            elif productName == 'NF5288M5':
-                biosver = biosVersion.replace(".", "_")
-                xmlfilepath = xml_path + os.path.sep + productName + "_" + biosver + ".xml"
-            elif productName == 'NF8480M5':
-                biosVersion_split = biosVersion.split('.')
-                if len(biosVersion_split) == 3 and int(
-                        biosVersion_split[1]) == 0 and int(
-                    biosVersion_split[2]) >= 4:
-                    xmlfilepath = xml_path + os.path.sep + productName + ".xml"
-                elif len(biosVersion_split) == 3 and int(biosVersion_split[1]) == 1 and int(
-                        biosVersion_split[2]) >= 0 and int(biosVersion_split[2]) <= 6:
-                    xmlfilepath = xml_path + os.path.sep + productName + "_" + "411" + ".xml"
-                elif biosVersion in ["4.1.07"]:
-                    xmlfilepath = xml_path + os.path.sep + productName + "_" + "417" + ".xml"
-                else:
-                    xmlfilepath = xml_path + os.path.sep + productName + "_" + biosVersion + ".xml"
-        else:
-            xmlfilepath = xml_path + os.path.sep + productName + ".xml"
-        if os.path.exists(xmlfilepath) is False:
-            if productName == "NF5288M5" or productName == "NF8480M5":
-                Bios_result.Message(
-                    ["Not Supported current bios version: {0}.".format(biosVersion)])
-            else:
-                Bios_result.Message(
-                    ["Not Supported ProductName " + productName])
-            Bios_result.State('Failure')
-            return Bios_result
-
-        if 'list' in args and args.list:  # 打印信息
-            biosconfutil = configUtil.configUtil()  # 实例化类对象
-            blongtoSet, descriptionList, infoList = biosconfutil.getSetOption(
-                xmlfilepath)  # 读取xml文件，返回信息
-            help_list = []
-            for info in infoList:
-                help_list.append('{:<35}: {}'.format(info['description'], list(item.get('value') for item in info.get('setter'))))
-            Bios_result.Message(help_list)
-            Bios_result.State('Success')
-            return Bios_result
-
-        if args.attribute is None and args.value is None and args.fileurl is None:
-            Bios_result.Message(['please input a command at least.'])
-            Bios_result.State('Failure')
-        elif args.attribute is None and args.value is None and args.fileurl is not None:
-            if os.path.exists(args.fileurl) and os.path.isfile(args.fileurl):
-                path_service = args.fileurl
-                try:
-                    biosJson = restore_bios(client, path_service)
-                    if len(biosJson) == 0:
-                        Bios_result.Message(['file is empty.'])
-                        Bios_result.State('Failure')
-                        return Bios_result
-                    # 执行单个设置 先读取文件，判断-a -v是否在列表中
-                    # 根据路径读取xml文件，得到全部的信息字典列表infoList
-                    biosconfutil = configUtil.configUtil()  # 实例化类对象
-                    blongtoSet, descriptionList, infoList = biosconfutil.getSetOption(
-                        xmlfilepath)  # 读取xml文件，返回信息
-                    for key, value in biosJson.items():
-                        if str(value).lower() == "enable":
-                            value = "Enabled"
-                        if str(value).lower() == "disable":
-                            value = "Disabled"
-                        # 判断-a是否在列表中
-                        if judgeAttInList(key.replace(" ", ''), descriptionList) is False:
-                            Bios_result.State('Failure')
-                            Bios_result.Message(
-                                ["'{0}' is not in set options.".format(key)])
-                            return Bios_result
-                        Flag, cmd, infomation = judgeValueInList(
-                            key.replace(" ", ''), value, infoList)
-                        if Flag:
-                            # 执行子命令
-                            bios_Info = IpmiFunc.setM5BiosByipmi(client, cmd)
-                            if bios_Info and bios_Info.get('code') == 0:
-                                continue
-                            else:
-                                Bios_result.State('Failure')
-                                Bios_result.Message(
-                                    ["bios cmd execution failed, please check the power and bios status."])
-                                return Bios_result
-                        else:
-                            value_list = []
-                            for values in infomation.get('setter', ''):
-                                value_list.append(values.get('value'))
-                            if value_list:
-                                Bios_result.State('Failure')
-                                Bios_result.Message(["'{0}' is not in '{1}' value options".format(
-                                    value, key) + "," + "available -v: " + ','.join(value_list)])
-                            else:
-                                Bios_result.State('Failure')
-                                Bios_result.Message(
-                                    ["{0} is not in '{1}' value options.".format(value, key)])
-                            return Bios_result
-                    # 全部执行完成之后，执行生效的命令
-                    bios_effective = IpmiFunc.setM5BiosEffectiveByipmi(client)
-                    if bios_effective and bios_effective.get('code') == 0:
-                        Bios_result.State('Success')
-                        Bios_result.Message(
-                            ['bios attribute set successfully.'])
-                        return Bios_result
-                    else:
-                        Bios_result.State('Failure')
-                        Bios_result.Message(
-                            ["failed to execute an order to make it effective."])
-                        return Bios_result
-                except BaseException:
-                    Bios_result.Message(['file format error.'])
-                    Bios_result.State('Failure')
-            else:
-                Bios_result.Message(['file path error.'])
-                Bios_result.State('Failure')
-        elif args.attribute is not None and args.value is not None and args.fileurl is None:
-            # 执行单个设置 先读取文件，判断-a -v是否在列表中
-            # args.attribute = args.attribute.replace(" ",'')
-            # 根据路径读取xml文件，得到全部的信息字典列表infoList
-            biosconfutil = configUtil.configUtil()  # 实例化类对象
-            blongtoSet, descriptionList, infoList = biosconfutil.getSetOption(
-                xmlfilepath)  # 读取xml文件，返回信息
-            # 判断-a是否在列表中
-            if judgeAttInList(
-                    args.attribute.replace(
-                        " ",
-                        ''),
-                    descriptionList) is False:
-                Bios_result.State('Failure')
-                Bios_result.Message(
-                    ["'{0}' is not in set options.".format(args.attribute)])
-                return Bios_result
-            Flag, cmd, infomation = judgeValueInList(
-                args.attribute.replace(" ", ''), args.value, infoList)
-            if Flag:
-                # 执行子命令
-                bios_Info = IpmiFunc.setM5BiosByipmi(client, cmd)
-                if bios_Info and bios_Info.get('code') == 0:
-                    bios_effective = IpmiFunc.setM5BiosEffectiveByipmi(client)
-                    if bios_effective and bios_effective.get('code') == 0:
-                        Bios_result.State('Success')
-                        Bios_result.Message(
-                            ['bios attribute set successfully.'])
-                        return Bios_result
-                    else:
-                        Bios_result.State('Failure')
-                        Bios_result.Message(
-                            ["failed to execute an order to make it effective."])
-                        return Bios_result
-                else:
-                    Bios_result.State('Failure')
-                    Bios_result.Message(
-                        ["bios cmd execution failed, please check the power and bios status."])
-                    return Bios_result
-            else:
-                value_list = []
-                for value in infomation.get('setter', ''):
-                    value_list.append(value.get('value'))
-                if value_list:
-                    Bios_result.State('Failure')
-                    Bios_result.Message(["'{0}' is not in '{1}' value options".format(
-                        args.value, args.attribute) + "," + "available -v: " + ','.join(value_list)])
-                else:
-                    Bios_result.State('Failure')
-                    Bios_result.Message(
-                        ["'{0}' is not in '{1}' value options.".format(args.value, args.attribute)])
-                return Bios_result
-        else:
-            Bios_result.Message(
-                ['-a must be used with -v,mutually exclusive with -f.'])
-            Bios_result.State('Failure')
-        return Bios_result
-
-    def setbiospwd(self, client, args):
-        res = ResultBean()
-        res.State("Not Support")
-        res.Message([])
-        return res
-
-    def getbiossetting(self, client, args):
-        """
-        get the BIOS debug enabled status
-        :param client:
-        :param args:
-        :return:
-        """
-        result = ResultBean()
-        result.State("Not Support")
-        result.Message([])
-        return result
-
-    def getbiosresult(self, client, args):
-        """
-        get bios config result
-        :param client:
-        :param args:
-        :return:
-        """
-        result = ResultBean()
-        result.State("Not Support")
-        result.Message([])
-        return result
-
-    def getbiosdebug(self, client, args):
-        """
-        get the bios debug enabled status
-        :param client:
-        :param args:
-        :return:
-        """
-        result = ResultBean()
-        result.State("Not Support")
-        result.Message([])
-        return result
-
-    def clearbiospwd(self, client, args):
-        res = ResultBean()
-        res.State("Not Support")
-        res.Message([])
-        return res
-
-    def restorebios(self, client, args):
-        """
-        restore BIOS setup factory configuration
-        :param client:
-        :param args:
-        :return:
-        """
-        result = ResultBean()
-        result.State("Not Support")
-        result.Message([])
-        return result
 
     def restorebmc(self, client, args):
         """
@@ -3737,7 +3247,7 @@ class CommonM5(Base):
             if "community" in item:
                 snmpbean.Community(item.get('community', "-"))
             snmpbean.Severity(severity_dict[item.get('event_level', "-")])
-            destinationlRes = CommonM5.getDestination(self, client, None)
+            destinationlRes = Common.getDestination(self, client, None)
             if destinationlRes.State == "Success":
                 snmpbean.Destination(destinationlRes.Message[0])
             else:
@@ -4272,7 +3782,7 @@ class CommonM5(Base):
         elif args.enabled == "Enabled":
             enable = 1
         else:
-            destinationlRes = CommonM5.getDestination(self, client, None)
+            destinationlRes = Common.getDestination(self, client, None)
             # logout
             # RestFunc.logout(client)
             if destinationlRes.State == "Success":
@@ -10498,25 +10008,6 @@ def verInterface(client):
             return interface_temp
     else:
         return None
-
-
-def getBiosAll(client, infoList):
-    biosaAttribute = {}
-    for list in infoList:
-        cmd = list['getter']
-        if cmd == 'None':
-            continue
-        bios_Info = IpmiFunc.getM5BiosByipmi(client, cmd, list)
-        if bios_Info and bios_Info.get('code') == 0:
-            key = bios_Info.get('data').get('key')
-            value = bios_Info.get('data').get('value')
-        else:
-            key = list['description']
-            value = None
-        biosaAttribute[key] = value
-        # else:
-        #     continue
-    return biosaAttribute
 
 
 def getCtrlInfo_PMC(client):
@@ -17905,30 +17396,6 @@ def PreLocatedisk(client):
     num = countNumber_lsi + countNumber_pmc
     if num == 0:
         return cid, pc, flag
-
-
-def restore_bios(client, path_service):
-    # 读取
-    f = open(path_service, 'r')
-    biosInfo = f.read()
-    f.close()
-    biosJson = json.loads(biosInfo)
-    return biosJson
-    # for bios in biosJson:
-
-
-def getbiosVersion(client):
-    biosVersion = IpmiFunc.getM5BiosVersionByIpmi(client)
-    if biosVersion and biosVersion.get(
-            'code') == 0 and biosVersion.get('data') is not None:
-        bios_data = biosVersion.get('data')
-        if 'Version' in bios_data:
-            version = bios_data.get('Version')
-        else:
-            version = None
-    else:
-        version = None
-    return version
 
 
 def typeconvert(var):

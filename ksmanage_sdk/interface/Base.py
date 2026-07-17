@@ -211,10 +211,6 @@ class Base(IBase):
         getcomand = [
             'get80port',
             'getadaptiveport',
-            'getbios',
-            'getbiosdebug',
-            'getbiosresult',
-            'getbiossetting',
             'getcapabilities',
             'getcpu',
             'geteventlog',
@@ -255,7 +251,6 @@ class Base(IBase):
             'adduser',
             'addwhitelist',
             'canceltask',
-            'clearbiospwd',
             'clearsel',
             'collect',
             'deluser',
@@ -263,11 +258,9 @@ class Base(IBase):
             'delwhitelist',
             'downloadsol',
             'downloadtfalog',
-            'exportbioscfg',
             'exportbmccfg',
             'fancontrol',
             'fwupdate',
-            'importbioscfg',
             'importbmccfg',
             'locatedisk',
             'locateserver',
@@ -276,16 +269,12 @@ class Base(IBase):
             'powerctrldisk',
             'recoverypsu',
             'resetbmc',
-            'restorebios',
             'restorebmc',
             'sendipmirawcmd',
             'settime',
             'settimezone',
             'settrapcom',
             'setadaptiveport',
-            'setbios',
-            'setbiosdebug',
-            'setbiospwd',
             'setfirewall',
             'sethsc',
             'setip',
@@ -541,60 +530,6 @@ class Base(IBase):
 
         :return:
         """
-
-    def getbios(self, client, args):
-        """
-
-        :return:
-        """
-
-    def setbios(self, client, args):
-        """
-
-        :return:
-        """
-
-    def setbiospwd(self, client, args):
-        """
-
-        :return:
-        """
-
-    def getbiossetting(self, client, args):
-        """
-
-        :return:
-        """
-
-    def getbiosresult(self, client, args):
-        """
-
-        :return:
-        """
-
-    def getbiosdebug(self, client, args):
-        """
-
-        :return:
-        """
-
-    def clearbiospwd(self, client, args):
-        """
-
-        :return:
-        """
-
-    def restorebios(self, client, args):
-        """
-
-        :return:
-        """
-
-    def setbiosdebug(self, client, args):
-        res = ResultBean()
-        res.State("Not Support")
-        res.Message([])
-        return res
 
     def mountvmm(self, client, args):
         """
@@ -1257,30 +1192,6 @@ class Base(IBase):
         :return:
         """
 
-    def exportbioscfg(self, client, args):
-        """
-        export bios setup configuration
-        :param client:
-        :param args:
-        :return:
-        """
-        bios = ResultBean()
-        bios.State('Not Support')
-        bios.Message([])
-        return bios
-
-    def importbioscfg(self, client, args):
-        """
-        import bios cfg
-        :param client:
-        :param args:
-        :return:
-        """
-        bios = ResultBean()
-        bios.State('Not Support')
-        bios.Message([])
-        return bios
-
     def delvncsession(self, client, args):
         """
 
@@ -1515,6 +1426,31 @@ class Base(IBase):
         result.State("Not Support")
         result.Message([])
         return result
+
+    def exportbioscfg(self, client, args):
+        bios = ResultBean()
+        bios.State('Not Support')
+        bios.Message([])
+        return bios
+
+    def importbioscfg(self, client, args):
+        bios = ResultBean()
+        bios.State('Not Support')
+        bios.Message([])
+        return bios
+
+
+    def getbios(self, client, args):
+        bios = ResultBean()
+        bios.State('Not Support')
+        bios.Message([])
+        return bios
+
+    def setbios(self, client, args):
+        bios = ResultBean()
+        bios.State('Not Support')
+        bios.Message([])
+        return bios
 
 # Ascii转十六进制
 

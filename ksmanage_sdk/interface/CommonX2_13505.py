@@ -1,6 +1,6 @@
 # -*- coding:utf-8 -*-
 
-from ksmanage_sdk.interface.CommonM7 import CommonM7
+from ksmanage_sdk.interface.CommonX2 import CommonX2
 from ksmanage_sdk.command import RestFunc
 from ksmanage_sdk.interface.ResEntity import ResultBean
 
@@ -9,10 +9,8 @@ from ksmanage_sdk.interface.ResEntity import ResultBean
 retry_count = 0
 
 
-# 2023年3月30日 M7 1.35.05 通过redfish配置bios body 必须带Attributes
-class CommonM7_13505(CommonM7):
-    def formatBiosPatchBody(self, user_bios):
-        return {"Attributes": user_bios}
+# 2023年3月30日 M7 1.35.05
+class CommonX2_13505(CommonX2):
 
     def delsession(self, client, args):
         result = ResultBean()

@@ -1,36 +1,28 @@
-CommonM5:
-  platform: M5
-NF5180M5:
-  platform: M5
-  common: NF5180M5
-NF5280M5:
-  platform: M5
-  common: NF5280M5
-  V4.034000: NF5280M5_435
-  V4.036000: NF5280M5_436
-CommonM6:
-  platform: M6
-  common: CommonM6
-  V4.020001: CommonM6_41401
-  V4.020010: CommonM6_4140a
-CommonM7:
-  platform: M7
-  common: CommonM7
-  V1.053005: CommonM7_13505
-CommonA6:
-  platform: M5
-  common: CommonA6
-CommonA5:
-  platform: M5
-  common: CommonA5
-CommonA7:
-  platform: M7
-  common: CommonA7
-  V1.019008: CommonA7_11308
-I24M6:
-  platform: M6
-  common: I24M6
-CommonM8:
-  platform: M8
-  common: CommonM8
-
+CommonX1:
+  platform: X1
+  common: CommonX1
+  V4.020001: CommonX1_41401
+  V4.020010: CommonX1_4140a
+CommonX2:
+  platform: X2
+  common: CommonX2
+  V1.053005: CommonX2_13505
+CommonE1:
+  platform: E1
+  common: CommonE1
+CommonE2:
+  platform: X2
+  common: CommonE2
+  V1.019008: CommonE2_11308
+CommonX3:
+  platform: X3
+  common: CommonX3
+KR3190X3:
+  platform: X3
+  common: KR3190X3
+KR3190E3:
+  platform: X3
+  common: KR3190E3
+OpenBmcE2:
+  platform: X2
+  common: OpenBmcE2

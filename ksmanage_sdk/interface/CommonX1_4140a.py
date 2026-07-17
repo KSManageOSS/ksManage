@@ -3,11 +3,11 @@
 from ksmanage_sdk.util import RegularCheckUtil
 from ksmanage_sdk.command import RestFunc
 
-from ksmanage_sdk.interface.CommonM6_41401 import CommonM6_41401
+from ksmanage_sdk.interface.CommonX1_41401 import CommonX1_41401
 from ksmanage_sdk.interface.ResEntity import ResultBean, SnmpBean, DestinationTXBean
 
 
-class CommonM6_4140a(CommonM6_41401):
+class CommonM6_4140a(CommonX1_41401):
 
     def getalertpolicy(self, client, args):
         alertinfo = ResultBean()
