@@ -3482,8 +3482,53 @@ class CommonX3(Base):
             return result
 
     def getauditlog(self, client, args):
+        nicRes = ResultBean()
+        if args.auditfile is not None:
+            file_name = os.path.basename(args.auditfile)
+            file_path = os.path.dirname(args.auditfile)
+            # 用户输入路径，则默认文件名eventlog_psn_time
+            if file_name == "":
+                psn = "UNKNOWN"
+                res = Base.getfru(self, client, args)
+                if res.State == "Success":
+                    frulist = res.Message[0].get("FRU", [])
+                    if frulist != []:
+                        psn = frulist[0].get('ProductSerial', 'UNKNOWN')
+                else:
+                    return res
+                import time
+                struct_time = time.localtime()
+                logtime = time.strftime("%Y%m%d-%H%M", struct_time)
+                file_name = "auditlog_" + psn + "_" + logtime
+                args.auditfile = os.path.join(file_path, file_name)
+            if not os.path.exists(file_path):
+                try:
+                    os.makedirs(file_path)
+                except BaseException:
+                    nicRes.State("Failure")
+                    nicRes.Message(["cannot build path " + file_path])
+                    return nicRes
+            else:
+                if os.path.exists(args.auditfile):
+                    name_id = 1
+                    path_new = os.path.splitext(args.auditfile)[
+                                   0] + "(1)" + os.path.splitext(args.auditfile)[1]
+                    while os.path.exists(path_new):
+                        name_id = name_id + 1
+                        path_new = os.path.splitext(args.auditfile)[0] + "(" + str(name_id) + ")" + \
+                                   os.path.splitext(args.auditfile)[1]
+                    args.auditfile = path_new
+        if args.count is not None:
+            if args.count <= 0:
+                nicRes.State("Failure")
+                nicRes.Message(["count param should be positive"])
+                return nicRes
+            if args.count > 1900:
+                args.count = 1900
+        else:
+            args.count = 1900
         url_result = self.get_url_info(sys._getframe().f_code.co_name)
-        result = RedfishTemplate.get_for_object_single(client, url_result.get('url')+"?$top=1900")
+        result = RedfishTemplate.get_for_object_single(client, url_result.get('url')+"?$top=" + str(args.count))
         res = ResultBean()
         if result.State:
             info = result.Message.get("Members", [])
@@ -3498,8 +3543,29 @@ class CommonX3(Base):
                 single_data['InterfaceName'] = item.get('Oem', {}).get('Public', {}).get('InterfaceName', "N/A")
                 single_data['UserName'] = item.get('Oem', {}).get('Public', {}).get('UserName', "N/A")
                 data_sum.append(single_data)
-            res.State("Success")
-            res.Message(data_sum)
+            json_res = {"Auditlog": data_sum}
+            if args.auditfile is not None:
+                try:
+                    logfile = open(args.auditfile, "w")
+                    # logfile.write(str(json))
+                    logfile.write(
+                        json.dumps(
+                            json_res,
+                            default=lambda o: o.__dict__,
+                            sort_keys=True,
+                            indent=4,
+                            ensure_ascii=True))
+                    logfile.close()
+                except Exception as e:
+                    # print  (str(e))
+                    res.State("Failure")
+                    res.Message(["cannot write log in " + args.auditfile])
+                    return res
+                res.State("Success")
+                res.Message(["Audit logs is stored in : " + args.auditfile])
+            else:
+                res.State("Success")
+                res.Message([json_res])
         else:
             res.State("Failure")
             res.Message(result.Message)
@@ -5917,9 +5983,53 @@ class CommonX3(Base):
         return res
 
     def geteventlog(self, client, args):
-        url_result = self.get_url_info("getsystemeventlog")
-        result = RedfishTemplate.get_for_object_single(client, url_result.get('url')+"?$top=3639")
         res = ResultBean()
+        if args.eventfile is not None:
+            file_name = os.path.basename(args.eventfile)
+            file_path = os.path.dirname(args.eventfile)
+            # 用户输入路径，则默认文件名eventlog_psn_time
+            if file_name == "":
+                psn = "UNKNOWN"
+                res = Base.getfru(self, client, args)
+                if res.State == "Success":
+                    frulist = res.Message[0].get("FRU", [])
+                    if frulist != []:
+                        psn = frulist[0].get('ProductSerial', 'UNKNOWN')
+                else:
+                    return res
+                import time
+                struct_time = time.localtime()
+                logtime = time.strftime("%Y%m%d-%H%M", struct_time)
+                file_name = "eventlog_" + psn + "_" + logtime
+                args.eventfile = os.path.join(file_path, file_name)
+            if not os.path.exists(file_path):
+                try:
+                    os.makedirs(file_path)
+                except BaseException:
+                    res.State("Failure")
+                    res.Message(["cannot build path " + file_path])
+                    return res
+            else:
+                if os.path.exists(args.eventfile):
+                    name_id = 1
+                    path_new = os.path.splitext(args.eventfile)[
+                                   0] + "(1)" + os.path.splitext(args.eventfile)[1]
+                    while os.path.exists(path_new):
+                        name_id = name_id + 1
+                        path_new = os.path.splitext(args.eventfile)[0] + "(" + str(name_id) + ")" + \
+                                   os.path.splitext(args.eventfile)[1]
+                    args.eventfile = path_new
+        if args.count is not None:
+            if args.count <= 0:
+                res.State("Failure")
+                res.Message(["count param should be positive"])
+                return res
+            if args.count > 3639:
+                args.count = 3639
+        else:
+            args.count = 3639
+        url_result = self.get_url_info("getsystemeventlog")
+        result = RedfishTemplate.get_for_object_single(client, url_result.get('url')+"?$top="+ str(args.count))
         if result.State:
             info = result.Message.get("Members", [])
             data_sum = []
@@ -5932,8 +6042,27 @@ class CommonX3(Base):
                 single_data['SensorType'] = item.get('SensorType', item.get("OemSensorType","N/A"))
                 single_data['SensorDesc'] = item.get('Message', "N/A")
                 data_sum.append(single_data)
-            res.State("Success")
-            res.Message(data_sum)
+            json_res = {"EventLog": data_sum}
+            if args.eventfile is not None:
+                try:
+                    logfile = open(args.eventfile, "w")
+                    logfile.write(
+                        json.dumps(
+                            json_res,
+                            default=lambda o: o.__dict__,
+                            sort_keys=True,
+                            indent=4,
+                            ensure_ascii=True))
+                    logfile.close()
+                except Exception as e:
+                    res.State("Failure")
+                    res.Message(["cannot write log in " + args.eventfile])
+                    return res
+                res.State("Success")
+                res.Message(["Event logs is stored in : " + args.eventfile])
+            else:
+                res.State("Success")
+                res.Message([json_res])
         else:
             res.State("Failure")
             res.Message(result.Message)
@@ -6872,19 +7001,19 @@ class CommonX3(Base):
     def updatecpld(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The M8 model does not support this feature.'])
         return result
 
     def updatebios(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The M8 model does not support this feature.'])
         return result
 
     def fwupdate(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The M8 model does not support this feature.'])
         return result
 
     def clearauditlog(self, client, args):
