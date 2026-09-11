@@ -87,7 +87,6 @@ DEVICE_ID = {
     0x1db5: "V100-SXM2 GPU",
     0x1b38: "P40 GPU",
     0x1db4: "V100-PCIE GPU",
-    # NF5468M5补充
     0x2031: "ISP8324-based 16Gb Fibre Channel to PCI Express Adapter",
     0x2532: "ISP2532-based 8Gb Fibre Channel to PCI Express HBA",
     0x101e: "GK110GL [Tesla K20X]",
@@ -638,7 +637,6 @@ def setHostname(client, hostname):
     return sendRawByIpmi(client, cmd_set)
 
 
-# M5 UPDATE BMC
 def getMac(client):
     cmd_get = "raw 0x3c 0x11 0x00 0x06 0x08 0x00"
     return sendRawByIpmi(client, cmd_get)
@@ -1251,7 +1249,6 @@ def getFirmwareVersoinByMcinfo(client):
     return bmcVersion
 
 
-# 获取M6机型web界面的登录加密方式，01加密，00不加密
 def judge_encrypt(client):
     cmd = "raw 0x3c 0x05 0x28"
     result = getLineRawByIpmi(client, cmd)

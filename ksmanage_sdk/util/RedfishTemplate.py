@@ -285,7 +285,6 @@ def get_for_object_with_header(client, url, code=list(range(200, 300))):
         return ResultBean.fail(e)
 
 
-# 循环获取进度 M7 redfish
 def get_for_object_cycle(client, url, count, func, code=list(range(200, 300))):
     try:
         n = 0
@@ -397,12 +396,9 @@ def cycle_get_task(client, url, timeout, retrynum, func, code=list(range(200, 30
 
 def post_for_object(client, postBody):
     url = postBody.get("url")
-    # auth = patchBody.get("auth")
-    # header = patchBody.get("header")
     myjson = postBody.get("json")
     mydata = postBody.get("data")
     myfile = postBody.get("file")
-    # func = postBody.get("func")
     code = postBody.get("code")
     timeout = postBody.get("timeout")
     header = postBody.get("header")
@@ -411,8 +407,6 @@ def post_for_object(client, postBody):
     if not code:
         code = list(range(200, 300))
     try:
-        # print(myjson)
-        # return ResultBean.success("ok")
         if header:
             response = client.request('POST', url, headers=header, json=myjson, data=mydata, timeout=timeout, files=myfile)
         else:

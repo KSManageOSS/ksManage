@@ -3093,14 +3093,13 @@ class CommonX3(Base):
         "SubDeviceId": ['Oem', 'Public', 'PCISubDeviceID'],
         "ChipRevision": ['Oem', 'Public', 'Chip'],
         "HostPortCount": None,
-        "HostInterface": ['Oem', 'Public', 'HostInterface'],#NE3180M8
+        "HostInterface": ['Oem', 'Public', 'HostInterface'],
         "DevicePortCount": None,
         "DeviceInterface": None,
         "fwVersion": "FirmwareVersion",
         "FwVerBuildDate": None,
         "FwVerBuildTime": None,
-        "BiosVersion": ['Oem', 'Public', 'BIOSVersion'], #NE3180M8
-        # "PackageVersion": ['Oem', 'Huawei', 'ConfigurationVersion'],#NVDATA Version
+        "BiosVersion": ['Oem', 'Public', 'BIOSVersion'],
         "NVDATAVersion": "PackageVersion",
         "TempROC": None,
         "TempCtrl": None,
@@ -3120,8 +3119,8 @@ class CommonX3(Base):
         "StripMaxSize": ['Oem', 'Public', 'StripMaxSize'],
         "SupportShieldState": None,
         "SupportJBOD": None,
-        "EnableJBOD": ['Oem', 'Public', 'JBOD'], #NE3180M8
-        "JBODConfig": ['Oem', 'Public', 'JBODConfig'], #NE3180M8
+        "EnableJBOD": ['Oem', 'Public', 'JBOD'],
+        "JBODConfig": ['Oem', 'Public', 'JBODConfig'],
         "Status": None,
         "SequenceNum": None,
         "PredFailPollInterval": None,
@@ -3192,16 +3191,15 @@ class CommonX3(Base):
         "ControllerMode": ['Oem', 'Public', 'ControllerMode'],
         "HardwareRevision": ['Oem', 'Public', 'HardwareRevision'],
         "Memory": ['Oem', 'Public', 'Memory'],
-        "MemoryChangeable": ['Oem', 'Public', 'MemoryChangeable'],#NE3180M8
-        "MemoryCorrectErrCount": ['Oem', 'Public', 'MemoryCorrectErrCount'],#NE3180M8
-        "MemoryUnCorrectErrCount": ['Oem', 'Public', 'MemoryUnCorrectErrCount'],#NE3180M8
+        "MemoryChangeable": ['Oem', 'Public', 'MemoryChangeable'],
+        "MemoryCorrectErrCount": ['Oem', 'Public', 'MemoryCorrectErrCount'],
+        "MemoryUnCorrectErrCount": ['Oem', 'Public', 'MemoryUnCorrectErrCount'],
         "WWN": ['Oem', 'Public', 'WWN'],
         "SeqNumLastCleanShutdownEvent": ['Oem', 'Public', 'SeqNumLastCleanShutdownEvent'],
         "SeqNumLastClearEvent": ['Oem', 'Public', 'SeqNumLastClearEvent'],
         "SeqNumNewestEvent": ['Oem', 'Public', 'SeqNumNewestEvent'],
         "SeqNumOldestEvent": ['Oem', 'Public', 'SeqNumOldestEvent'],
         "SeqNumThisSessionBootEvent": ['Oem', 'Public', 'SeqNumThisSessionBootEvent'],
-        #NE3180M8
         "SupportedControllerProtocols": "SupportedControllerProtocols",
         "SupportedDeviceProtocols": "SupportedDeviceProtocols",
         "PortCount": ['Oem', 'Public', 'PortCount'],
@@ -3680,16 +3678,610 @@ class CommonX3(Base):
         # logout
         return bmcres
 
+    def exportbioscfg(self, client, args):
+        res = filePath("biosconfig", args)
+        if res.State == "Failure":
+            return res
+        url_result = self.get_url_info("exportbiosoption")
+        postbody = {}
+        postbody["url"] = url_result.get('url')
+        result = RedfishTemplate.post_for_object(client, postbody)
+        res = ResultBean()
+        if result.State:
+            with open(args.fileurl, 'w') as f:
+                import json
+                f.write(json.dumps(result.Message.json(), indent=4))
+                # f.write(str(result.Message.json()))
+            res.State('Success')
+            res.Message('Bios Configuration export to ' + str(args.fileurl))
+        else:
+            res.State('Failure')
+            res.Message(result.Message)
+        return res
+
+    def importbioscfg(self, client, args):
+        checkparam_res = ResultBean()
+        if not os.path.exists(args.fileurl):
+            checkparam_res.State("Failure")
+            checkparam_res.Message(["File not exists."])
+            return checkparam_res
+        if not os.path.isfile(args.fileurl):
+            checkparam_res.State("Failure")
+            checkparam_res.Message(["The file url is not file."])
+            return checkparam_res
+        url_result = self.get_url_info("importbiosoption")
+
+        filename = os.path.basename(args.fileurl)
+        files = {"config": (filename + ".json", open(args.fileurl, 'rb'), "multipart/form-data")}
+
+        postbody = {}
+        postbody["url"] = url_result.get('url')
+        postbody["file"] = files
+        result = RedfishTemplate.post_for_object(client, postbody)
+        res = ResultBean()
+        if result.State:
+            res.State('Success')
+            res.Message('Import Bios Configuration successfully')
+        else:
+            res.State('Failure')
+            res.Message(result.Message)
+        return res
+
+    def getbios(self, client, args):
+        args.Attribute = None
+        # 获取bios版本 放在args里面
+        self._get_bios_version(client, args)
+        bios_result = ResultBean()
+
+        url_result = self.get_url_info("getbios")
+        server_result = RedfishTemplate.get_for_object_single(client, url_result.get('url'))
+        if server_result.State:
+            server_bios = server_result.Message.get("Attributes")
+            if not server_bios:
+                bios_result.State("Failure")
+                bios_result.Message(["Cannot get bios info"])
+                return bios_result
+
+            # 获取映射信息
+            mapper_result = self._get_xml_mapper(args, 'cmd', 'value')
+            attr_dict = {}
+            if mapper_result[0]:
+                attr_dict = mapper_result[1]
+            else:
+                bios_result.Message([mapper_result[1]])
+                bios_result.State('Failure')
+                return bios_result
+
+            attr_request = []  # 统一处理-A指定的配置项或所有可获取的配置项
+            if args.Attribute:  # 获取指定BIOS
+                if args.Attribute.strip().lower().replace(" ", "") not in attr_dict:
+                    bios_result.Message(["[{}] is invalid option.".format(args.Attribute)])
+                    bios_result.State('Failure')
+                    return bios_result
+                attr_request.append(args.Attribute.strip().lower().replace(" ", ""))
+            else:  # 获取全部BIOS项
+                attr_request = list(attr_dict.keys())
+
+            bios = {}
+            for attr_lower in attr_request:
+                attr = attr_dict[attr_lower]['getter']
+                attr_parent = attr_dict[attr_lower]['parent']
+                attr_desc = attr_dict[attr_lower]['description']
+                attr_desc_nospace = attr_desc.replace(" ", "")
+                if attr_parent not in server_bios:
+
+                    # 根据指定的参数确定输出的提示信息
+                    if args.Attribute:
+                        bios_result.State('Failure')
+                        bios_result.Message(["can't get the value of [{}].".format(attr_desc)])
+                        return bios_result
+                    else:
+                        bios[attr_desc_nospace] = None
+
+                else:
+                    l1_bios_value = server_bios[attr_parent]
+                    if isinstance(l1_bios_value, dict):
+                        if attr in l1_bios_value:
+                            bios[attr_desc_nospace] = self._transfer_value(l1_bios_value[attr],
+                                                                           attr_dict[attr_lower]['setter'],
+                                                                           attr_desc)
+                        elif attr[:-1] in l1_bios_value:
+                            if len(l1_bios_value[attr[:-1]]) > int(attr[-1]):
+                                bios[attr_desc_nospace] = self._transfer_value(l1_bios_value[attr[:-1]][int(attr[-1])],
+                                                                               attr_dict[attr_lower]['setter'],
+                                                                               attr_desc)
+                            else:
+                                bios[attr_desc_nospace] = None
+
+                        else:
+
+                            # 根据指定的参数确定输出的提示信息
+                            if args.Attribute:
+                                bios_result.State('Failure')
+                                bios_result.Message(
+                                    ["can't get value of [{}].".format(attr_desc)])
+                                return bios_result
+                            else:
+                                bios[attr_desc_nospace] = None
+
+                    else:
+
+                        # 根据指定的参数确定输出的提示信息
+                        if args.Attribute:
+                            bios_result.State('Failure')
+                            bios_result.Message(
+                                ['not support getting value of [{}].'.format(attr_desc)])
+                            return bios_result
+                        else:
+                            bios[attr_desc_nospace] = None
+
+            bios_result.State('Success')
+            bios_result.Message([bios])
+        else:
+            bios_result.State('Failure')
+            bios_result.Message([server_result.Message])
+        return bios_result
+
+    def _transfer_value(self, origin_value, value_map, user_key):
+        """
+        服务器原始bios配置值 -> 符合配置文件约束的配置值
+        args:
+            origin_value: 服务器原始bios值
+            value_map: 机型映射文件{cmd: value}
+            user_key: 当前需要转换的description，用来特殊处理BootOption
+        returns:
+            转换后的值
+        """
+        if isinstance(origin_value, list):
+            if user_key.startswith(('UEFIBootOption', 'LegacyBootOption')):
+                index = int(user_key[-1:]) - 1
+                return value_map.get(origin_value[index], origin_value[index])
+            else:
+                return [value_map.get(str(value), str(value)) for value in origin_value]
+        elif isinstance(origin_value, dict):
+            return {k: value_map.get(str(v), str(v)) for k, v in origin_value}
+        else:
+            if len(value_map) == 1:
+                return origin_value
+            else:
+                return value_map.get(str(origin_value), None)
+
+    def setbios(self, client, args):
+        # 获取bios版本 放在args里面
+        self._get_bios_version(client, args)
+        res = ResultBean()
+        attr_dict = {}
+        # 读取映射文件
+        mapper_result = self._get_xml_mapper(args, 'value', 'cmd')
+        if mapper_result[0]:
+            if args.list:  # 打印信息
+                help_list = []
+                for key, value in mapper_result[1].items():
+                    help_list.append(
+                        '{:<35}: {}'.format(value['description'].replace(" ", ""), list(value['setter'].keys())))
+                res.Message(help_list)
+                res.State('Success')
+                return res
+            else:
+                attr_dict = mapper_result[1]
+        else:
+            res.Message([mapper_result[1]])
+            res.State('Failure')
+            return res
+
+        # 获取用户输入，统一处理通过-A或通过文件配置的值
+        import json
+        input_value = {}
+        if args.fileurl:
+            if not os.path.exists(args.fileurl) or not os.path.isfile(args.fileurl):
+                res.Message(['file path error.'])
+                res.State('Failure')
+                return res
+            try:
+                with open(args.fileurl) as f:
+                    input_value = json.loads(f.read())
+            except:
+                res.Message(['file format error.'])
+                res.State('Failure')
+                return res
+        if args.attribute:
+            input_value[args.attribute.strip()] = args.value.strip()
+
+        # getbios
+        url_result = self.get_url_info("getbios")
+        server_result = RedfishTemplate.get_for_object_single(client, url_result.get('url'))
+        if not server_result.State:
+            res.Message(['get bios failed.' + str(server_result.Message)])
+            res.State('Failure')
+            return res
+        # 当前值
+        server_bios = server_result.Message.get("Attributes")
+
+        # 获取future
+        url_result = self.get_url_info("setbios")
+        future_result = RedfishTemplate.get_for_object_single(client, url_result.get('url'))
+        if future_result.State:
+            future_bios = future_result.Message.get('Attributes')
+        else:
+            future_bios = None
+
+        # 校验输入并转换，默认映射文件完全正确，不再和服务器键比对
+        user_bios = {}  # 最终会提交到redfish接口中的配置字典
+        bootdict = {}
+        for key, value in input_value.items():
+            # 校验键
+            if key.lower().replace(" ", "") not in attr_dict:
+                res.Message(['not support setting [{}]. Please refer to [-L]'.format(key)])
+                res.State('Failure')
+                return res
+            # 校验值并转换
+            item_dict = attr_dict[key.lower().replace(" ", "")]
+            attr = item_dict['getter']
+            attr_setter = item_dict['setter']
+            attr_parent = item_dict['parent']
+            # list的3种处理方式 {0:"x", 1:"y"} [x,y,...] x
+            if item_dict.get('list') > 0:
+                inputlist = []
+                if isinstance(value, dict):
+                    dict2list = server_bios.get(attr_parent).get(attr)
+                    for k, v in value.items():
+                        dict2list[k] = str(attr_setter[v])
+                    inputlist = dict2list
+                elif isinstance(value, list):
+                    for valuesingle in value:
+                        if attr_setter.get(valuesingle):
+                            inputlist.append(str(attr_setter[valuesingle]))
+                        elif attr_setter.get(str(valuesingle)):
+                            inputlist.append(str(attr_setter[str(valuesingle)]))
+                        else:
+                            res.Message(['[{}] is invalid value for bios option [{}], and valid values are [{}].'
+                                        .format(value, key, ', '.join(list(attr_setter.keys())))])
+                            res.State('Failure')
+                            return res
+
+                elif isinstance(value, str):
+                    if "{" in value:
+                        try:
+                            valueinjson = json.loads(value)
+                            dict2list = server_bios.get(attr_parent).get(attr)
+                            for k, v in valueinjson.items():  # 根据目前支持的配置项，值统一处理为str
+                                if int(k) >= len(dict2list):
+                                    res.Message(
+                                        ['incorrect key: "{}", list length is {}. '.format(k, len(dict2list))])
+                                    res.State('Failure')
+                                    return res
+
+                                dict2list[int(k)] = str(attr_setter[v])
+                                inputlist = dict2list
+                        except Exception as e:
+
+                            res = ResultBean()
+                            res.Message(
+                                ['incorrect format for key: [{}], value: [{}]. value format is JSON.'.format(key,
+                                                                                                             value)])
+                            res.State('Failure')
+                            return res
+                    elif "[" in value:
+                        valueinlist = value[1:-1].split(",")
+                        for valuesingle in valueinlist:
+                            inputlist.append(str(attr_setter[valuesingle]))
+                    else:
+                        inputlist = [str(attr_setter[value])] * item_dict.get('list')
+
+                if user_bios.get(attr_parent):
+                    user_bios.get(attr_parent)[attr] = inputlist
+                else:
+                    user_bios[attr_parent] = {attr: inputlist}
+            elif attr_parent == "FixedBootPriorities":
+
+                if value not in attr_setter:
+                    res.Message(['[{}] is invalid value for bios option [{}], and valid values are [{}].'
+                                .format(value, key, ', '.join(list(attr_setter.keys())))])
+                    res.State('Failure')
+                    return res
+                bootdict[attr] = str(attr_setter.get(value, value))
+            else:
+                if len(attr_setter) == 1:
+                    # 类型
+                    for valuerange in attr_setter.keys():
+                        if "-" in valuerange:
+                            min = int(valuerange.split("-")[0])
+                            max = int(valuerange.split("-")[1])
+                        elif "~" in valuerange:
+                            min = int(valuerange.split("~")[0])
+                            max = int(valuerange.split("~")[1])
+                        else:
+                            res.Message([
+                                '[{}] is invalid range value for bios option [{}], range should be a~b or a-b.'
+                                .format(valuerange, key)])
+                            res.State('Failure')
+                            return res
+                        if int(value) < min or int(value) > max:
+                            res.Message(
+                                ['[{}] is invalid value for bios option [{}], and valid values are [{}].'
+                                 .format(value, key, valuerange)])
+                            res.State('Failure')
+                            return res
+
+                    if user_bios.get(attr_parent):
+                        user_bios.get(attr_parent)[attr] = int(value)
+                    else:
+                        user_bios[attr_parent] = {attr: int(value)}
+                    # user_bios[attr] = int(value)
+                else:
+                    if item_dict['match'] and value not in attr_setter:
+                        res.Message(['[{}] is invalid value for bios option [{}], and valid values are [{}].'
+                                    .format(value, key, ', '.join(list(attr_setter.keys())))])
+                        res.State('Failure')
+                        return res
+
+                    if user_bios.get(attr_parent):
+                        user_bios.get(attr_parent)[attr] = str(attr_setter.get(value, value))
+                    else:
+                        user_bios[attr_parent] = {attr: str(attr_setter.get(value, value))}
+
+                    # user_bios[attr] = str(attr_setter.get(value, value))
+
+        if bootdict:
+            # 需要特殊处理boot相关
+            uefibootlist = []
+            legacybootlist = []
+            if future_bios and future_bios.get("FixedBootPriorities"):
+                uefibootlist = future_bios.get("FixedBootPriorities").get("UefiPriorities", [])
+                legacybootlist = future_bios.get("FixedBootPriorities").get("LegacyPriorities", [])
+
+            if not uefibootlist:
+                uefibootlist = server_bios.get("FixedBootPriorities").get("UefiPriorities", [])
+            if not legacybootlist:
+                legacybootlist = server_bios.get("FixedBootPriorities").get("LegacyPriorities", [])
+
+            for uboot, uvalue in bootdict.items():
+                if "UefiPriorities" in uboot and uefibootlist:
+                    uid = int(uboot.replace("UefiPriorities", ""))
+                    uefibootlist[uid] = uvalue
+                if "LegacyPriorities" in uboot and legacybootlist:
+                    uid = int(uboot.replace("LegacyPriorities", ""))
+                    legacybootlist[uid] = uvalue
+            if uefibootlist:
+                user_bios["FixedBootPriorities"] = {"UefiPriorities": uefibootlist}
+            if legacybootlist:
+                if user_bios.get("FixedBootPriorities"):
+                    user_bios.get("FixedBootPriorities")["LegacyPriorities"] = legacybootlist
+                else:
+                    user_bios["FixedBootPriorities"] = {"LegacyPriorities": legacybootlist}
+
+        # 读取映射文件
+        flag, bios_info = self._get_xml(args)
+        if not flag:
+            res.Message([bios_info])
+            res.State('Failure')
+            return res
+
+        # 检查前置项
+        conditionflag, conditionmessage = self.judgeCondition(user_bios, future_bios, server_bios, bios_info)
+        if not conditionflag:
+            res.State('Failure')
+            res.Message([conditionmessage])
+            # logout
+            return res
+
+        user_bios_f = self.formatBiosPatchBody(user_bios)
+
+        patchBody = {}
+        url_result = self.get_url_info("setbios")
+        patchBody['url'] = url_result.get('url')
+        url_result = self.get_url_info("getbios")
+        patchBody['etagurl'] = url_result.get('url')
+        patchBody['json'] = user_bios_f
+        set_result = RedfishTemplate.patch_for_object(client, patchBody)
+
+        if set_result.State:
+            res.Message([''])
+            res.State("Success")
+        else:
+            res.Message([set_result.Message])
+            res.State('Failure')
+        return res
+
+    def formatBiosPatchBody(self, user_bios):
+        return {"Attributes": user_bios}
+
+    def _get_bios_version(self, client, args):
+        biosversion = None
+        # get
+
+        url_result = self.get_url_info(sys._getframe().f_code.co_name)
+        result = RedfishTemplate.get_for_collection_object(client, url_result.get('url'))
+        if result.State:
+            data = result.Message
+            for item in data:
+                if item.get("Id") == "Bios":
+                    version = item.get('Version', 'N/A')
+                    if version is None:
+                        version = "N/A"
+                    version_index = str(version).find('(')
+                    if version_index == -1:
+                        biosversion = version
+                    else:
+                        biosversion = str(version)[:version_index].strip()
+                    break
+
+        args.biosversion = biosversion
+        return biosversion
+
+    def _get_xml_file(self, args):
+        xml_path = os.path.join(IpmiFunc.command_path, "bios") + os.path.sep
+        return xml_path + 'X3.xml'
+
+
+    def _get_xml_mapper(self, args, key, value):
+        """
+            {
+                'descriptionName': {
+                    'description': 'descriptionName',
+                    'list': 64,
+                    'match': True/False,
+                    'parent': 'server_bios_parent_key',
+                    'getter': 'server_bios_key',
+                    'setter': {
+                        'cmd': 'value' 或 'value': 'cmd' 根据参数确定
+                    }
+                }
+            }
+        """
+        try:
+            xml_filepath = self._get_xml_file(args)
+            import xml.etree.ElementTree as ET
+            tree = ET.parse(xml_filepath)
+            server = tree.getroot()
+            map_dict = {}
+            for items in server:
+                for item in items:
+                    map_dict[item.find('name').find('description').text.lower().replace(" ", "")] = {
+                        'description': item.find('name').find('description').text,
+                        'list': 0 if item.find('list') is None else int(item.find('list').text),
+                        'match': True if item.find('match') is None else False if item.find(
+                            'match').text == 'False' else True,
+                        'parent': None if item.find('parent') is None else item.find('parent').text,
+                        'getter': item.find('getter').text,
+                        'setter': {
+                            setter.find(key).text: setter.find(value).text for setter in item.find('setters')
+                        },
+                        'conditions': {} if item.find('conditions') is None else {
+                            setter.find("key").text: setter.find("value").text for setter in item.find('conditions')
+                        },
+                    }
+            return True, map_dict
+        except Exception as e:
+            return False, str(e)
+
+    def _get_xml(self, args):
+        try:
+            xml_filepath = self._get_xml_file(args)
+            import xml.etree.ElementTree as ET
+            tree = ET.parse(xml_filepath)
+            server = tree.getroot()
+            map_dict = {}
+            for items in server:
+                for item in items:
+                    map_dict[item.find('getter').text] = {
+                        'description': item.find('name').find('description').text,
+                        'type': 'str' if item.find('type') is None else item.find('type').text,
+                        'match': True if item.find('match') is None else False if item.find(
+                            'match').text == 'False' else True,
+                        'parent': None if item.find('parent') is None else item.find('parent').text,
+                        'getter': item.find('getter').text,
+                        'setter': {
+                            setter.find("cmd").text: setter.find("value").text for setter in item.find('setters')
+                        },
+                        'conditions': {} if item.find('conditions') is None else {
+                            setter.find("key").text: setter.find("value").text for setter in item.find('conditions')
+                        },
+                    }
+            return True, map_dict
+        except Exception as e:
+            return False, str(e)
+
+    # 判断是否可以设置
+    # bios_set={redfishkey,redfishvalue}
+    # bios_future={redfishkey,redfishvalue}
+    # bios_cur={redfishkey,redfishvalue}
+    # bios_all_info={clikey, allinfo}
+    def judgeCondition(self, bios_set, bios_future, bios_cur, bios_all_info):
+        conditionflag = True
+        # getter: {conditiongetter:{}}
+        conditionDict = {}
+        # getter:  {getter2: value}
+        condition_dict = {}
+        # getter: description
+        bios_dict = {}
+        # getter: {cmd: value}
+        bios_value_dict = {}
+        errordict = {}
+        for bioskey, biosvalue in bios_set.items():
+            conditions = bios_all_info.get(bioskey, {}).get("conditions", {})
+            errorlist = []
+            errorinfo = ""
+            # 如果和当前值相等 不需要考虑condition
+            bioskeyparent = bios_all_info.get(bioskey, {}).get("parent")
+            if bioskeyparent:
+                if bioskeyparent == "FixedBootPriorities":
+                    # 如果是启动项，可能获取方式有区别
+                    bioskeylistname = bioskey[0:-1]
+                    bioskeylistid = bioskey[-1]
+                    if bios_set.get(bioskey) == bios_cur.get(bioskeyparent, {}).get(bioskeylistname, [])[
+                        int(bioskeylistid)]:
+                        continue
+                else:
+                    if bios_cur.get(bioskeyparent, {}).get(bioskey) == bios_set.get(bioskey):
+                        continue
+
+            for conditionkey, conditionvalue in conditions.items():
+                condition_bios_info = bios_all_info.get(conditionkey)
+                # condition 的 cli 展示 key
+                conditionkeyshow = condition_bios_info.get("description")
+                # {bmc value: cli value}
+                conditionvaluedict = condition_bios_info.get("setter")
+                conditionvalueshow = conditionvaluedict.get(conditionvalue, conditionvalue)
+                conditionparent = condition_bios_info.get("parent")
+                # 比较当前设置值
+                conditonvalue_set = None
+                if bios_set.get(conditionkey):
+                    conditonvalue_set = bios_set.get(conditionkey)
+                elif bios_set.get(conditionparent):
+                    conditonvalue_set = bios_set.get(conditionparent).get(conditionkey)
+                if conditonvalue_set:
+                    if conditionvalue == conditonvalue_set:
+                        continue
+                    else:
+                        errorlist.append(self.formatCondition(conditionkeyshow, conditionvalueshow,
+                                                              conditionvaluedict.get(conditonvalue_set), 1))
+                        continue
+                # 比较即将生效值
+                if bios_future:
+                    conditonvalue_future = None
+                    if bios_future.get(conditionkey):
+                        conditonvalue_future = bios_future.get(conditionkey)
+                    elif bios_future.get(conditionparent):
+                        conditonvalue_future = bios_future.get(conditionparent).get(conditionkey)
+                    if conditonvalue_future:
+                        if conditionvalue == conditonvalue_future:
+                            continue
+                        else:
+                            errorlist.append(self.formatCondition(conditionkeyshow, conditionvalueshow,
+                                                                  conditionvaluedict.get(conditonvalue_future), 2))
+                            continue
+                # 比较当前值
+                conditonvalue_current = None
+                if bios_cur.get(conditionkey):
+                    conditonvalue_current = bios_cur.get(conditionkey)
+                elif bios_cur.get(conditionparent):
+                    conditonvalue_current = bios_cur.get(conditionparent).get(conditionkey)
+                if conditonvalue_current:
+                    if conditionvalue == conditonvalue_current:
+                        continue
+                    else:
+                        errorlist.append(self.formatCondition(conditionkeyshow, conditionvalueshow,
+                                                              conditionvaluedict.get(conditonvalue_current), 3))
+                        continue
+            if errorlist != []:
+                errorinfo = ",".join(errorlist)
+                errordict[bios_all_info.get(bioskey).get("description")] = errorinfo
+        if errordict == {}:
+            return True, None
+        else:
+            return False, errordict
+
     def setbootimage(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def getbootimage(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def getsysboot(self, client, args):
@@ -6997,179 +7589,1289 @@ class CommonX3(Base):
             res.State("Failure")
             res.Message(result.Message)
         return res
+    #update
+    def fwupdate(self, client, args):
+        if args.type == "BMC":
+            return self.updatebmc(client, args)
+        elif args.type == "BIOS":
+            return self.updatebios(client, args)
+        else:
+            res = ResultBean()
+            res.State("Failure")
+            res.Message(["Not Support, Update " + args.type + " is not support"])
+            return res
 
-    def updatecpld(self, client, args):
-        result = ResultBean()
-        result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
-        return result
+    def gettaskid(self, client, args):
+        if args.type in self.task_dict:
+            return self.task_dict.get(args.type)
+        elif args.type == "BP_CPLD":
+            url_result = self.get_url_info("get_update_process")
+            res = RedfishTemplate.get_for_object_single(client, url_result.get('url'))
+            if res.State:
+                urllist = res.Message.get("Members")
+                for urlbody in urllist:
+                    taskid = urlbody.get("@odata.id").split("/")[-1]
+                    if "BP" in taskid and "_CPLD" in taskid:
+                        return taskid
+        return None
+
+    def gettaskids(self, client, args):
+        taskidlist = []
+        url_result = self.get_url_info("get_update_process")
+        res = RedfishTemplate.get_for_object_single(client, url_result.get('url'))
+        if res.State:
+            urllist = res.Message.get("Members")
+            for urlbody in urllist:
+                taskid = urlbody.get("@odata.id").split("/")[-1]
+                if args.type == "PSU":
+                    if "PSU" in taskid:
+                        taskidlist.append(taskid)
+                elif args.type == "CPLD":
+                    if "CPLD" in taskid and args.cpldtype in taskid:
+                        taskidlist.append(taskid)
+
+        return taskidlist
+
+    def getrollbacktaskid(self, client, args):
+        url_result = self.get_url_info("get_update_process")
+        res = RedfishTemplate.get_for_object_single(client, url_result.get('url'))
+        if res.State:
+            urllist = res.Message.get("Members")
+            for urlbody in urllist:
+                taskid = urlbody.get("@odata.id").split("/")[-1]
+                if "rollback" in taskid.lower():
+                    return taskid
+        return None
 
     def updatebios(self, client, args):
         result = ResultBean()
-        result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        # 文件校验
+        if not os.path.exists(args.url):
+            result.State("Failure")
+            result.Message("File not exist. Please select valid image file.")
+            return result
+        if not os.path.isfile(args.url):
+            result.State("Failure")
+            result.Message("Please select valid image file")
+            return result
+
+        hpmflag, hpminfo = getHpmInfo(args.url)
+        if not hpmflag:
+            result.State("Failure")
+            result.Message([hpminfo])
+            return result
+
+        #校验
+        if hpminfo.get("des") == "BIOS_PFR":
+            args.type = "BIOS_PFR"
+            return self.updatebiosPFR(client, args)
+
+        if hpminfo.get("des") != "BIOS":
+            result.State("Failure")
+            result.Message("not valid BIOS update file")
+            return result
+
+        log_path = self._get_update_log_path(client, args)
+        wirte_log(log_path, "Upload File", "Network Ping OK", "")
+        try:
+            update_flag = self._get_update_service(client, args)
+            if update_flag:
+                wirte_log(log_path, "Upload File", "Update service is enabled", "")
+            else:
+                result.State("Failure")
+                result.Message("Update service is disabled, please check server manually.")
+                return result
+
+            fw_version = self._get_firmware_version(client, args)
+            if fw_version != "":
+                wirte_log(log_path, "Upload File", "current BIOS version: " + str(fw_version), "")
+            wirte_log(log_path, "Upload File", "start to update " + args.type, "")
+            wirte_log(log_path, "Upload File", "Upload file start " + os.path.abspath(args.url), "")
+            flag, message = self._upload_file(client, args)
+            if flag:
+                wirte_log(log_path, "Upload File", "upload file successfully", "")
+            else:
+                wirte_log(log_path, "Upload File", "upload file failed", message)
+                result.State("Failure")
+                result.Message("update %s failed." % args.type)
+                return result
+
+            if args.override == 0:
+                wirte_log(log_path, "Apply", "start to execute update with all preserve", "")
+            else:
+                wirte_log(log_path, "Apply", "start to execute update with no preserve", "")
+            flag, message = self._execute_update(client, args)
+            if flag:
+                wirte_log(log_path, "Apply", "execute update successfully", "")
+                wirte_log(log_path, "Apply", "Apply(Flash) start", "")
+            else:
+                wirte_log(log_path, "Apply", "execute update failed", message)
+                result.State("Failure")
+                result.Message("update %s failed." % args.type)
+                return result
+
+            # 尝试获取进度
+            time.sleep(30)
+            #获取新增的bios进度
+
+            #获取开关机状态
+            powerstatus = None
+            power_info = self.getpowerstatus(client, args)
+            if power_info.State == "Success":
+                powerstatus = power_info.Message.get("PowerStatus")
+
+
+            if powerstatus and powerstatus.lower() == "on":
+                if args.mode == 'Manual':
+                    wirte_log(log_path, "Apply", "Apply(FLASH) pending, trigger: power off.", "")
+                    result.State('Success')
+                    result.Message("Apply(FLASH) pending, trigger: power off.")
+                    return result
+                else:
+                    args.state = "cycle"
+                    power_info = self.powercontrol(client, args)
+                    if power_info.State == "Success":
+                        wirte_log(log_path, "Activate", "Set power cycle successfully", "")
+                    else:
+                        wirte_log(log_path, "Activate", "Set power cycle failed", "please check the server")
+                        result.State("Failure")
+                        result.Message("Update bios complete, but power cycle server failed. " + str(power_info.Message))
+                        return result
+
+            #
+            task0 = "/redfish/v1/TaskService/Tasks/BIOS0"
+            task1 = "/redfish/v1/TaskService/Tasks/BIOS1"
+            task0status = False
+            stime = time.time()
+            while True:
+                ftime = time.time()
+                if ftime - stime > 600:
+                    wirte_log(log_path, "Apply", "Apply(Flash) timeout", "")
+                    result.State('Failure')
+                    result.Message("Apply(FLASH) timeout.")
+                    return result
+
+
+                res = RedfishTemplate.get_for_object_single(client, task0)
+                if res.State:
+                    taskinfo = res.Message
+                    if taskinfo.get("TaskStatus") == "OK":
+                        if taskinfo.get("TaskState") == "Running":
+                            wirte_log(log_path, "Apply", "In Progress",
+                                      "progress:" + str(taskinfo.get("PercentComplete")) + "%")
+                            time.sleep(10)
+                        elif taskinfo.get("TaskState") == "Completed":
+                            task0status = True
+                            wirte_log(log_path, "Apply", "In Progress",
+                                      "progress:" + str(taskinfo.get("PercentComplete")) + "%")
+                            if task0 == task1:
+                                wirte_log(log_path, "Apply", "Apply(Flash) successfully", "")
+                                break
+                                # result.State('Success')
+                                # result.Message("")
+                                # return result
+                            else:
+                                task0 = task1
+                                time.sleep(20)
+                        else:
+                            continue
+                    else:
+                        wirte_log(log_path, "Apply", "Flash", "task failed")
+                        result.State("Failure")
+                        result.Message("Update failed. " + str(taskinfo))
+                        return result
+
+                else:
+                    #镜像0刷新完成
+                    if task0status:
+                        wirte_log(log_path, "Apply", "Apply(Flash) successfully", "")
+                        break
+                    continue
+
+            if powerstatus and powerstatus.lower() == "off":
+                if args.mode == 'Auto':
+                    args.state = "on"
+                    power_info = self.powercontrol(client, args)
+                    if power_info.State == "Success":
+                        wirte_log(log_path, "Activate", "Set power on successfully", "")
+                        result.State('Success')
+                        result.Message("")
+                    else:
+                        wirte_log(log_path, "Activate", "Set power cycle failed", "please check the server")
+                        result.State("Failure")
+                        result.Message("Update bios complete, but power on server failed. " + str(power_info.Message))
+                else:
+                    result.State('Success')
+                    result.Message("")
+            else:
+                result.State('Success')
+                result.Message("")
+
+        except Exception as e:
+            result = ResultBean()
+            result.State("Failure")
+            result.Message(str(e))
         return result
 
-    def fwupdate(self, client, args):
+    def updatebiosPFR(self, client, args):
         result = ResultBean()
-        result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        # 文件校验
+        if not os.path.exists(args.url):
+            result.State("Failure")
+            result.Message("File not exist. Please select valid image file.")
+            return result
+        if not os.path.isfile(args.url):
+            result.State("Failure")
+            result.Message("Please select valid image file")
+            return result
+
+        log_path = self._get_update_log_path(client, args)
+
+        hpmflag, hpminfo = getHpmInfo(args.url)
+        if not hpmflag:
+            result.State("Failure")
+            result.Message([hpminfo])
+            return result
+        wirte_log(log_path, "Upload File", "Network Ping OK", "")
+
+        try:
+            update_flag = self._get_update_service(client, args)
+            if update_flag:
+                wirte_log(log_path, "Upload File", "Update service is enabled", "")
+            else:
+                result.State("Failure")
+                result.Message("Update service is disabled, please check server manually.")
+                return result
+
+            fw_version = self._get_firmware_version(client, args)
+            if fw_version != "":
+                wirte_log(log_path, "Upload File", "current BIOS version: " + str(fw_version), "")
+            wirte_log(log_path, "Upload File", "start to update " + args.type, "")
+            wirte_log(log_path, "Upload File", "Upload file start " + os.path.abspath(args.url), "")
+            flag, message = self._upload_file(client, args)
+            if flag:
+                wirte_log(log_path, "Upload File", "upload file successfully", "")
+            else:
+                wirte_log(log_path, "Upload File", "upload file failed", message)
+                result.State("Failure")
+                result.Message("update %s failed." % args.type)
+                return result
+
+            if args.override == 0:
+                wirte_log(log_path, "Apply", "start to execute update with all preserve", "")
+            else:
+                wirte_log(log_path, "Apply", "start to execute update with no preserve", "")
+            flag, message = self._execute_update(client, args)
+            if flag:
+                wirte_log(log_path, "Apply", "execute update successfully", "")
+                wirte_log(log_path, "Apply", "Apply(Flash) start", "")
+            else:
+                wirte_log(log_path, "Apply", "execute update failed", message)
+                result.State("Failure")
+                result.Message("update %s failed." % args.type)
+                return result
+
+            # 尝试获取进度
+            time.sleep(30)
+            #获取新增的bios进度
+
+            #获取开关机状态
+            powerstatus = None
+            power_info = self.getpowerstatus(client, args)
+            if power_info.State == "Success":
+                powerstatus = power_info.Message.get("PowerStatus")
+
+
+            if powerstatus and powerstatus.lower() == "on":
+                if args.mode == 'Manual':
+                    wirte_log(log_path, "Apply", "Apply(FLASH) pending, trigger: power off.", "")
+                    result.State('Success')
+                    result.Message("Apply(FLASH) pending, trigger: power off.")
+                    return result
+                else:
+                    args.state = "cycle"
+                    power_info = self.powercontrol(client, args)
+                    if power_info.State == "Success":
+                        wirte_log(log_path, "Activate", "Set power cycle successfully", "")
+                    else:
+                        wirte_log(log_path, "Activate", "Set power cycle failed", "please check the server")
+                        result.State("Failure")
+                        result.Message("Update bios complete, but power cycle server failed. " + str(power_info.Message))
+                        return result
+            else:
+                if args.mode == 'Auto':
+                    args.state = "on"
+                    power_info = self.powercontrol(client, args)
+                    if power_info.State == "Success":
+                        wirte_log(log_path, "Activate", "Set power on successfully", "")
+                    else:
+                        wirte_log(log_path, "Activate", "Set power on failed", "please check the server")
+                        result.State("Failure")
+                        result.Message("Update bios complete, but power on server failed. " + str(power_info.Message))
+                        return result
+            #
+            task0 = "/redfish/v1/TaskService/Tasks/bios"
+            stime = time.time()
+            completeflag = False
+            while True:
+                ftime = time.time()
+                if ftime - stime > 600:
+                    wirte_log(log_path, "Apply", "Apply(Flash) timeout", "")
+                    result.State('Failure')
+                    result.Message("Apply(FLASH) timeout.")
+                    return result
+
+
+                res = RedfishTemplate.get_for_object_single(client, task0)
+                if res.State:
+                    taskinfo = res.Message
+                    if taskinfo.get("TaskStatus") == "OK":
+                        if taskinfo.get("TaskState") == "Running" or  taskinfo.get("TaskState") == "Starting":
+                            wirte_log(log_path, "Apply", "In Progress",
+                                      "progress:" + str(taskinfo.get("PercentComplete")) + "%")
+                            time.sleep(10)
+                        elif taskinfo.get("TaskState") == "Completed":
+                            completeflag = True
+                            wirte_log(log_path, "Apply", "In Progress",
+                                      "progress:" + str(taskinfo.get("PercentComplete")) + "%")
+                            wirte_log(log_path, "Apply", "Apply(Flash) successfully", "")
+                            break
+                        else:
+                            continue
+                    else:
+                        wirte_log(log_path, "Apply", "Flash", "task failed")
+                        result.State("Failure")
+                        result.Message("Update failed. " + str(taskinfo))
+                        return result
+                else:
+                    break
+            if not completeflag:
+                wirte_log(log_path, "Apply", "Apply(Flash) successfully", "")
+
+            wirte_log(log_path, "Apply", "BMC reboot start, please wait 15 mins", "")
+            result.State("Success")
+            result.Message("BMC rebooting")
+        except Exception as e:
+            wirte_log(log_path, "Apply", "update bios exception", str(e))
+            result = ResultBean()
+            result.State("Failure")
+            result.Message(str(e))
         return result
+
+    def updatebmc(self, client, args):
+        result = ResultBean()
+        # 文件校验
+        if not os.path.exists(args.url):
+            result.State("Failure")
+            result.Message("File not exist. Please select valid image file.")
+            return result
+        if not os.path.isfile(args.url):
+            result.State("Failure")
+            result.Message("Please select valid image file")
+            return result
+
+        log_path = self._get_update_log_path(client, args)
+        hpmflag, hpminfo = getHpmInfo(args.url)
+        if not hpmflag:
+            result.State("Failure")
+            result.Message([hpminfo])
+            return result
+        if hpminfo.get("des") == "BMC_PFR":
+            args.type = "BMC_PFR"
+            return self.updatebmcPFR(client, args)
+        if hpminfo.get("des") != "APP" and hpminfo.get("des") != "OPENBMC":
+            result.State("Failure")
+            result.Message("not valid bmc update file")
+            return result
+        wirte_log(log_path, "Upload File", "Network Ping OK", "")
+
+        update_flag = self._get_update_service(client, args)
+        if update_flag:
+            wirte_log(log_path, "Upload File", "Update service is enabled", "")
+        else:
+            result.State("Failure")
+            result.Message("Update service is disabled, please check server manually.")
+            return result
+
+        fw_version = self._get_firmware_version(client, args)
+        if fw_version != "":
+            wirte_log(log_path, "Upload File", "current BMC version: " + str(fw_version), "")
+
+        wirte_log(log_path, "Upload File", "start to update " + args.type, "")
+        wirte_log(log_path, "Upload File", "Upload file start " + os.path.abspath(args.url), "")
+        flag, message = self._upload_file(client, args)
+        if flag:
+            wirte_log(log_path, "Upload File", "upload file successfully", "")
+        else:
+            wirte_log(log_path, "Upload File", "upload file failed", message)
+            result.State("Failure")
+            result.Message("update %s failed." % args.type)
+            return result
+
+        if args.override == 0:
+            wirte_log(log_path, "Apply", "start to execute update with all preserve", "")
+        else:
+            wirte_log(log_path, "Apply", "start to execute update with no preserve", "")
+        flag, message = self._execute_update(client, args)
+        if flag:
+            wirte_log(log_path, "Apply", "execute update successfully", "")
+            wirte_log(log_path, "Apply", "Apply(Flash) start", "")
+        else:
+            wirte_log(log_path, "Apply", "execute update failed", message)
+            result.State("Failure")
+            result.Message("update %s failed." % args.type)
+            return result
+        taskid = self.gettaskid(client, args)
+        count_100 = 0
+        error_count = 0
+        for i in range(60):
+            if error_count > 3:
+                wirte_log(log_path, "Apply", "cannot get percentage, try to login BMC...", "")
+                break
+            flag, message, task_state = self._get_task_percent(client, args, taskid)
+            if flag:
+                wirte_log(log_path, "Apply", "In progress", "progress: " + str(message) + "%")
+                if int(message) == 100 or task_state == "Completed":
+                    count_100 += 1
+                    break
+            else:
+                wirte_log(log_path, "Apply", "In progress", "get progress failed...")
+                error_count += 1
+            time.sleep(10)
+        if count_100 >= 1:
+            wirte_log(log_path, "Apply", "Apply(Flash) successfully", "")
+
+        wirte_log(log_path, "Apply", "BMC reboot start", "")
+        #2024年4月29日 带内不去检查是否成功
+        if client.host == "169.254.0.17":
+            result.State("Success")
+            result.Message("")
+            return result
+        if client.host == "192.168.1.100":
+            result.State("Success")
+            result.Message("")
+            return result
+
+        time.sleep(60)
+        wirte_log(log_path, "Apply", "BMC reboot inprogress", "")
+        time.sleep(60)
+        wirte_log(log_path, "Apply", "BMC reboot inprogress", "")
+        time.sleep(60)
+
+        stime = time.time()
+        session_url = self.get_url_info("get_sessions")
+        while True:
+            rtime = time.time()
+            if rtime - stime > 420:
+                result.State("Failure")
+                uploadfailinfo = "BMC reboot timeout."
+                result.Message([uploadfailinfo])
+                wirte_log(log_path, "Apply", "BMC reboot timeout", "")
+                return result
+
+            # 任意访问一个接口
+            login_res = RedfishTemplate.get_for_object_single(client, session_url.get('url'))
+            if login_res.State:
+                break
+            else:
+                time.sleep(20)
+                continue
+
+        wirte_log(log_path, "Apply", "BMC reboot complete", "")
+        abmcversion = "-"
+        bbmcversion = "-"
+        rollbackflag = False
+        bmc_res = self.getfw(client, args)
+        if bmc_res.State == "Success":
+            bmc_info = bmc_res.Message
+            for item in bmc_info:
+                if item.get("ActiveBMC"):
+                    abmcversion = item.get("ActiveBMC")
+                elif item.get("BackupBMC"):
+                    bbmcversion = item.get("BackupBMC")
+            if abmcversion != "-":
+                if abmcversion == bbmcversion:
+                    wirte_log(log_path, "Apply", "BMC version: " + abmcversion, "")
+                    result.State("Success")
+                    result.Message("")
+                    return result
+                else:
+                    rollbackflag = True
+
+        if not rollbackflag:
+            result.State("Failure")
+            result.Message("BMC update complete, but cannot get active bmc version." + str(bmc_res.Message))
+            return result
+        else:
+            time.sleep(15)
+            taskrbid = self.getrollbacktaskid(client, args)
+            if taskrbid is not None:
+                wirte_log(log_path, "Apply", "BMC rollback start", "")
+                url_result = self.get_url_info("get_update_process")
+                taskurl = url_result.get('url') + str(taskrbid)
+                stime = time.time()
+                while True:
+                    ftime = time.time()
+                    if ftime - stime > 600:
+                        wirte_log(log_path, "Apply", "Apply(Flash) timeout", "")
+                        result.State('Failure')
+                        result.Message("Apply(FLASH) timeout.")
+                        return result
+
+
+                    res = RedfishTemplate.get_for_object_single(client, taskurl)
+                    taskinfo = res.Message
+                    if res.State:
+                        # if taskinfo.get("TaskStatus") == "OK":
+                        if taskinfo.get("TaskState") == "Running":
+                            wirte_log(log_path, "Apply", "In progress", "progress: " + str(taskinfo.get("PercentComplete")) + "%")
+                            time.sleep(10)
+                        elif taskinfo.get("TaskState") == "Completed":
+                            wirte_log(log_path, "Apply", "In progress",
+                                      "progress: " + str(taskinfo.get("PercentComplete")) + "%")
+                            wirte_log(log_path, "Apply", "Apply(Flash) successfully", "")
+                            result.State('Success')
+                            result.Message("")
+                            return result
+                        else:
+                            break
+                    else:
+                        # {'error': 'Task 8 not running!', 'code': 17017}
+                        if taskinfo.json().get("code") == 17017:
+                            break
+
+        result.State("Success")
+        result.Message("")
+        return result
+
+    def updatebmcPFR(self, client, args):
+        result = ResultBean()
+        # 文件校验
+        if not os.path.exists(args.url):
+            result.State("Failure")
+            result.Message("File not exist. Please select valid image file.")
+            return result
+        if not os.path.isfile(args.url):
+            result.State("Failure")
+            result.Message("Please select valid image file")
+            return result
+
+        log_path = self._get_update_log_path(client, args)
+
+        hpmflag, hpminfo = getHpmInfo(args.url)
+        if not hpmflag:
+            result.State("Failure")
+            result.Message([hpminfo])
+            return result
+
+        if hpminfo.get("des") != "BMC_PFR":
+            result.State("Failure")
+            result.Message("not valid bmc PFR update file")
+            return result
+
+        wirte_log(log_path, "Upload File", "Network Ping OK", "")
+
+        update_flag = self._get_update_service(client, args)
+        if update_flag:
+            wirte_log(log_path, "Upload File", "Update service is enabled", "")
+        else:
+            result.State("Failure")
+            result.Message("Update service is disabled, please check server manually.")
+            return result
+
+        fw_version = self._get_firmware_version(client, args)
+        if fw_version != "":
+            wirte_log(log_path, "Upload File", "current BMC version: " + str(fw_version), "")
+
+        wirte_log(log_path, "Upload File", "start to update " + args.type, "")
+        wirte_log(log_path, "Upload File", "Upload file start " + os.path.abspath(args.url), "")
+        flag, message = self._upload_file(client, args)
+        if flag:
+            wirte_log(log_path, "Upload File", "upload file successfully", "")
+        else:
+            wirte_log(log_path, "Upload File", "upload file failed", message)
+            result.State("Failure")
+            result.Message("update %s failed." % args.type)
+            return result
+
+        if args.override == 0:
+            wirte_log(log_path, "Apply", "start to execute update with all preserve", "")
+        else:
+            wirte_log(log_path, "Apply", "start to execute update with no preserve", "")
+        flag, message = self._execute_update(client, args)
+        if flag:
+            wirte_log(log_path, "Apply", "execute update successfully", "")
+            wirte_log(log_path, "Apply", "Apply(Flash) start", "")
+        else:
+            wirte_log(log_path, "Apply", "execute update failed", message)
+            result.State("Failure")
+            result.Message("update %s failed." % args.type)
+            return result
+
+        taskid = self.gettaskid(client, args)
+
+        error_count = 0
+        pro = 0
+        message = ""
+        for i in range(60):
+            if error_count > 3:
+                result.State("Failure")
+                result.Message("Cannot get task info.")
+                return result
+
+
+            flag, message, task_state = self._get_task_percent(client, args, taskid)
+            if flag:
+                pro = message
+                wirte_log(log_path, "Apply", "In progress", "progress: " + str(pro) + "%")
+                if int(message) == 100 or task_state == "Completed":
+                    wirte_log(log_path, "Apply", "Apply(Flash) successfully", "")
+                    break
+            else:
+                if int(pro) > 80:
+                    wirte_log(log_path, "Apply", "Apply(Flash) successfully", "")
+                    break
+                else:
+                    wirte_log(log_path, "Apply", "In progress", "get progress failed...")
+                    error_count += 1
+            time.sleep(10)
+        wirte_log(log_path, "Apply", "BMC reboot start, please wait 15 mins.", "")
+        result.State("Success")
+        result.Message("BMC rebooting")
+        return result
+
+    def updatecpld(self, client, args):
+        result = ResultBean()
+        args.type = "CPLD"
+        args.override = 0
+        # 文件校验
+        if not os.path.exists(args.url):
+            result.State("Failure")
+            result.Message(["File not exist. Please select valid image file."])
+            return result
+        if not os.path.isfile(args.url):
+            result.State("Failure")
+            result.Message(["Please select valid image file"])
+            return result
+
+
+        #check cpld
+        hpmflag, hpminfo = getHpmInfo(args.url)
+        if not hpmflag:
+            result.State("Failure")
+            result.Message([hpminfo])
+            return result
+
+        args.cpldtype = self.getHpmType(hpminfo)
+        log_path = self._get_update_log_path(client, args)
+
+        wirte_log(log_path, "Upload File", "Network Ping OK", "")
+        # 获取开关机状态
+        powerstatus = None
+        power_info = self.getpowerstatus(client, args)
+        if power_info.State == "Success":
+            powerstatus = power_info.Message.get("PowerStatus")
+
+        update_flag = self._get_update_service(client, args)
+        if update_flag:
+            wirte_log(log_path, "Upload File", "Update service is enabled", "")
+        else:
+            result.State("Failure")
+            result.Message("Update service is disabled, please check server manually.")
+            return result
+
+        wirte_log(log_path, "Upload File", "start to update " + args.cpldtype, "")
+        wirte_log(log_path, "Upload File", "Upload file start " + os.path.abspath(args.url), "")
+        flag, message = self._upload_file(client, args)
+        if flag:
+            wirte_log(log_path, "Upload File", "upload file successfully", "")
+        else:
+            wirte_log(log_path, "Upload File", "upload file failed", message)
+            result.State("Failure")
+            result.Message(["update %s failed." % args.cpldtype])
+            return result
+
+        wirte_log(log_path, "Apply", "start to execute update", "")
+        flag, message = self._execute_update(client, args)
+        if flag:
+            wirte_log(log_path, "Apply", "execute update successfully", "")
+            wirte_log(log_path, "Apply", "Apply(Flash) start", "")
+        else:
+            wirte_log(log_path, "Apply", "execute update failed", message)
+            result.State("Failure")
+            result.Message(["update %s failed." % args.cpldtype])
+            return result
+        taskids = self.gettaskids(client, args)
+        #PowerOff PowerOn
+        triggerflag, trigger = self._get_task_trigger(client, args, taskids[0])
+        if not triggerflag:
+            result.State('Success')
+            result.Message(["Upload file complete, but cannot get update trigger."])
+            wirte_log(log_path, "Apply", "Upload file complete", "cannot get update trigger")
+            return result
+        #
+        if trigger == "PowerCycle":
+            if powerstatus == "On":
+                wirte_log(log_path, "Apply", "Apply(FLASH) pending",
+                          "host is power " + powerstatus + " now. trigger: " + trigger + ". (TaskId=" + str(
+                              taskids) + ")")
+                result.State('Success')
+                result.Message(["Apply(FLASH) pending, host is power " + powerstatus + " now. trigger: " + trigger + "."])
+                return result
+        #POWEROFF
+        if trigger !=  "Auto":
+            if powerstatus and powerstatus.lower() not in trigger.lower():
+                result.State('Success')
+                wirte_log(log_path, "Apply", "Apply(FLASH) pending",
+                          "host is power " + powerstatus + " now. trigger: " + trigger + ". (TaskId=" + str(taskids) + ")")
+                result.Message(["Apply(FLASH) pending, host is power " + powerstatus + " now. trigger: " + trigger + "."])
+                return result
+        stime = time.time()
+        timeout = 15 * 60 * len(taskids)
+        task0 = taskids[0]
+        taskids.pop(0)
+        etime = 0
+        percent = 0
+        url_result = self.get_url_info("get_update_process")
+        taskurl0 = url_result.get('url')
+        wirte_log(log_path, "Apply", self._get_ftime() + "Apply(Flash) " + task0 + " start", "")
+        while True:
+            ftime = time.time()
+            if ftime - stime > timeout:
+                wirte_log(log_path, "Apply", "Apply(Flash) failed", "Apply(Flash) timeout")
+                result.State("Failure")
+                result.Message(["Apply(Flash) timeout"])
+                return result
+
+            if percent < 90:
+                time.sleep(30)
+            else:
+                time.sleep(20)
+
+
+            taskurl = taskurl0 + str(task0)
+            res = RedfishTemplate.get_for_object_single(client, taskurl)
+            if res.State:
+                etime = 0
+                taskinfo = res.Message
+                if taskinfo.get("TaskStatus") == "OK":
+                    taskstate = taskinfo.get("TaskState")
+                    if taskstate == "Running":
+                        wirte_log(log_path, "Apply", "In progress", "progress: " + str(taskinfo.get("PercentComplete")) + "%")
+                    elif taskstate == "Completed":
+                        wirte_log(log_path, "Apply", "In progress", "progress: " + str(taskinfo.get("PercentComplete")) + "%")
+                        if not taskids:
+                            wirte_log(log_path, "Apply", "Apply(Flash) successfully", "")
+                            if trigger == "PowerCycle":
+                                wirte_log(log_path, "Apply", "Power Cycle to activated.", "")
+                            break
+                        else:
+                            task0 = taskids[0]
+                            wirte_log(log_path, "Apply", "Apply(Flash) " + task0 + " start", "")
+                            taskids.pop(0)
+
+                    elif taskstate == "New":
+                        continue
+                    elif taskstate == "Starting":
+                        continue
+                    else:
+                        wirte_log(log_path, "Apply", "Apply(Flash) failed", self._get_ftime() + "task " + taskstate)
+                        result.State("Failure")
+                        result.Message(["Update failed " + str(taskinfo)])
+                        return result
+                else:
+                    wirte_log(log_path, "Apply", "Apply(Flash) failed", "Update failed " + str(taskinfo))
+                    result.State("Failure")
+                    result.Message(["Update failed " + str(taskinfo)])
+                    return result
+
+            else:
+                if etime == 0:
+                    etime = time.time()
+                if ftime - etime > 120:
+                    wirte_log(log_path, "Apply", "Apply(Flash) failed", self._get_ftime() + "get task info failed.")
+                    result.State("Failure")
+                    result.Message(["Get task info failed. " + str(res.message)])
+                    return result
+                else:
+                    continue
+        result.State('Success')
+        result.Message([""])
+        return result
+
+    def updatepsu(self, client, args):
+        result = ResultBean()
+        args.type = "PSU"
+        args.override = 0
+        # 文件校验
+        if not os.path.exists(args.url):
+            result.State("Failure")
+            result.Message(["File not exist. Please select valid image file."])
+            return result
+        if not os.path.isfile(args.url):
+            result.State("Failure")
+            result.Message(["Please select valid image file"])
+            return result
+
+        log_path = self._get_update_log_path(client, args)
+        wirte_log(log_path, "Upload File", "Network Ping OK", "")
+
+        # 获取开关机状态
+        powerstatus = None
+        power_info = self.getpowerstatus(client, args)
+        if power_info.State == "Success":
+            powerstatus = power_info.Message.get("PowerStatus")
+
+        update_flag = self._get_update_service(client, args)
+        if update_flag:
+            wirte_log(log_path, "Upload File", "Update service is enabled", "")
+        else:
+            result.State("Failure")
+            result.Message("Update service is disabled, please check server manually.")
+            return result
+
+        wirte_log(log_path, "Upload File", "start to update " + args.type, "")
+        wirte_log(log_path, "Upload File", "Upload file start " + os.path.abspath(args.url), "")
+        flag, message = self._upload_file(client, args)
+        if flag:
+            wirte_log(log_path, "Upload File", "upload file successfully", "")
+        else:
+            wirte_log(log_path, "Upload File", "upload file failed", message)
+            result.State("Failure")
+            result.Message(["update %s failed." % args.type])
+            return result
+
+        wirte_log(log_path, "Apply", "start to execute update", "")
+        flag, message = self._execute_update(client, args)
+        if flag:
+            wirte_log(log_path, "Apply", "execute update successfully", "")
+            wirte_log(log_path, "Apply", "Apply(Flash) start", "")
+        else:
+            wirte_log(log_path, "Apply", "execute update failed", message)
+            result.State("Failure")
+            result.Message(["update %s failed." % args.type])
+            return result
+
+        taskids = self.gettaskids(client, args)
+        #判断任务状态
+
+        #PowerOff PowerOn
+        triggerflag, trigger = self._get_task_trigger(client, args, taskids[0])
+        if not triggerflag:
+            result.State('Success')
+            result.Message(["Upload file complete, but cannot get update trigger."])
+            wirte_log(log_path, "Apply", "Upload file complete", "cannot get update trigger")
+            return result
+        #POWEROFF
+        if trigger !=  "Auto":
+            if powerstatus and powerstatus.lower() not in trigger.lower():
+                result.State('Success')
+                wirte_log(log_path, "Apply", "Apply(FLASH) pending",
+                          "host is power " + powerstatus + " now. trigger: " + trigger + ". (TaskId=" + str(taskid) + ")")
+                return result
+        stime = time.time()
+        timeout = 15 * 60 * len(taskids)
+        task0 = taskids[0]
+        taskids.pop(0)
+        etime = 0
+        percent = 0
+        url_result = self.get_url_info("get_update_process")
+        taskurl0 = url_result.get('url')
+        wirte_log(log_path, "Apply", self._get_ftime() + "Apply(Flash) " + task0 + " start", "")
+        while True:
+            ftime = time.time()
+            if ftime - stime > timeout:
+                wirte_log(log_path, "Apply", "Apply(Flash) failed", "Apply(Flash) timeout")
+                result.State("Failure")
+                result.Message(["Apply(Flash) timeout"])
+                return result
+
+            if percent < 90:
+                time.sleep(30)
+            else:
+                time.sleep(20)
+
+
+            taskurl = taskurl0 + str(task0)
+            res = RedfishTemplate.get_for_object_single(client, taskurl)
+            if res.State:
+                etime = 0
+                taskinfo = res.Message
+                if taskinfo.get("TaskStatus") == "OK":
+                    taskstate = taskinfo.get("TaskState")
+                    if taskstate == "Running":
+                        wirte_log(log_path, "Apply", "In progress", "progress: " + str(taskinfo.get("PercentComplete")) + "%")
+                    elif taskstate == "Completed":
+                        wirte_log(log_path, "Apply", "In progress", "progress: " + str(taskinfo.get("PercentComplete")) + "%")
+                        if not taskids:
+                            wirte_log(log_path, "Apply", "Apply(Flash) successfully", "")
+                            if trigger == "PowerCycle":
+                                wirte_log(log_path, "Apply", "Power Cycle to activated.", "")
+                            break
+                        else:
+                            task0 = taskids[0]
+                            wirte_log(log_path, "Apply", "Apply(Flash) " + task0 + " start", "")
+                            taskids.pop(0)
+
+                    elif taskstate == "New":
+                        continue
+                    elif taskstate == "Starting":
+                        continue
+                    else:
+                        wirte_log(log_path, "Apply", "Apply(Flash) failed", self._get_ftime() + "task " + taskstate)
+                        result.State("Failure")
+                        result.Message(["Update failed " + str(taskinfo)])
+                        return result
+                else:
+                    wirte_log(log_path, "Apply", "Apply(Flash) failed", "Update failed " + str(taskinfo))
+                    result.State("Failure")
+                    result.Message(["Update failed " + str(taskinfo)])
+                    return result
+
+            else:
+                if etime == 0:
+                    etime = time.time()
+                if ftime - etime > 120:
+                    wirte_log(log_path, "Apply", "Apply(Flash) failed", self._get_ftime() + "get task info failed.")
+                    result.State("Failure")
+                    result.Message(["Get task info failed. " + str(res.message)])
+                    return result
+                else:
+                    continue
+        result.State('Success')
+        result.Message([""])
+        return result
+
+
+    task_dict = {
+        "BMC": "BMC",
+        "BMCRollback": "ROLLBACK",
+        "BMC_PFR": "bmc",
+        "BIOS": None,
+        "MB": "MB_CPLD",
+        "SCM_CPLD": "SCM_CPLD",
+        # "BP_CPLD": "BP0_CPLD",
+    }
+
+    def accycleg7(self, client, args):
+        time.sleep(30)
+        if "auto_ac" in args and args.auto_ac == 1:
+            acres = IpmiFunc.ACCycleG7(client)
+            if acres.get("code") == 0:
+                return "AC cycle complete."
+            else:
+                return "AC cycle failed." + acres.get("data")
+    def getHpmType(self, hpmrawdict):
+        # 解析镜像)
+        boardidlist = hpmrawdict.get("boardid")
+        file_des = hpmrawdict.get("des")
+        if str(file_des).upper() == "CPLD":
+            if 80 in boardidlist:
+                return "SCM_CPLD"
+            else:
+                return "MB"
+        elif str(file_des).upper().startswith('YZBB'):
+            return "BP_CPLD"
+        elif str(file_des).upper().startswith('YZCF'):
+            return "FAN_CPLD"
+        else:
+            return file_des
+
+    def _get_ftime(self, ff="%Y-%m-%d %H:%M:%S "):
+        try:
+            localtime = time.localtime()
+            f_localtime = time.strftime(ff, localtime)
+            return f_localtime
+        except:
+            return ""
+
+    # 查询当前服务器状态能否升级
+    def _get_update_service(self, client, args):
+        update_flag = False
+        url_result = self.get_url_info("get_update_service")
+        result = RedfishTemplate.get_for_object_single(client, url_result.get('url'))
+        if result.State:
+            info = result.Message
+            update_flag = info.get("ServiceEnabled", False)
+        return update_flag
+
+    def _get_firmware_version(self, client, args):
+        version = ""
+        url_dict = {
+            'BMC': 'get_active_bmc_version',
+            'BMC_PFR': 'get_active_bmc_version',
+            'BIOS': 'get_bios_version',
+            'BIOS_PFR': 'get_bios_version',
+        }
+        url_result = self.get_url_info(url_dict.get(args.type))
+        result = RedfishTemplate.get_for_object_single(client, url_result.get('url'))
+        if result.State:
+            info = result.Message
+            version = str(info.get("Version", "")).split("(")[0]
+        return version
+
+    # 上传文件
+    def _upload_file(self, client, args):
+        url_result = self.get_url_info("upload_update_file")
+        postBody = {}
+        postBody['data'] = {}
+        postBody['file'] = [('fwimage', open(args.url, 'rb')),('CurrentPassword', args.passcode), ('EncryptFlag', False)]
+        postBody['url'] = url_result.get('url')
+        postBody['timeout'] = 600
+        res = RedfishTemplate.post_for_object(client, postBody)
+        if res.State:
+            checkres = res.Message.json()
+            msg = checkres.get("error", {}).get("message")
+            if msg == 'Verification Failed':
+                return False, msg
+            return True, None
+        else:
+            return False, str(res.Message)
+
+    # 触发升级
+    def _execute_update(self, client, args):
+        url_result = self.get_url_info("execute_update")
+        pre_dict = {
+            0: False,
+            1: True
+        }
+        data = {}
+        if args.type == "BMC":
+            data['FlashItem'] = "OpenBMC_ENC"
+        else:
+            data['FlashItem'] = args.type
+        if "PFR" in args.type:
+            data['PFRType'] = True
+            if "pfrimage" in args and args.pfrimage == "active":
+                data['PFRRegion'] = "Active"
+            else:
+                data['PFRRegion'] = "Recovery"
+            data['PFRUpdateDynamic'] = pre_dict.get(args.override)
+        else:
+            data['PreserveConf'] = pre_dict.get(1 - args.override)
+        if args.type == "BIOS":
+            data['BiosFlash'] = "Both"
+
+        data = {"Oem": {"Public": data}}
+        postBody = {}
+        postBody['json'] = data
+        postBody['url'] = url_result.get('url')
+        res = RedfishTemplate.post_for_object(client, postBody)
+        if res.State:
+            return True, None
+        else:
+            return False, str(res.Message)
+
+    # 获取进度
+    def _get_task_trigger(self, client, args, task_id):
+        url_result = self.get_url_info("get_update_process")
+        res = RedfishTemplate.get_for_object_single(client, url_result.get('url') + str(task_id))
+        if res.State:
+            return True, res.Message.get('Oem', {}).get('Public', {}).get("Trigger")
+        else:
+            return False, str(res.Message)
+
+    # 获取进度
+    def _get_task_percent(self, client, args, task_id):
+        url_result = self.get_url_info("get_update_process")
+        res = RedfishTemplate.get_for_object_single(client, url_result.get('url') + str(task_id))
+        if res.State:
+            if res.Message.get('PercentComplete') is not None and res.Message.get('TaskState') is not None:
+                return True, res.Message.get('PercentComplete'), res.Message.get('TaskState')
+            else:
+                return False, str(res.Message), "Failed"
+        else:
+            return False, str(res.Message), "Failed"
+
+    def _get_update_log_path(self, client, args):
+        def ftime(ff="%Y-%m-%d %H:%M:%S "):
+            try:
+                import time
+                localtime = time.localtime()
+                f_localtime = time.strftime(ff, localtime)
+                return f_localtime
+            except BaseException:
+                return ""
+        psn = "UNKNOWN"
+        res_syn = self.getfru(client, args)
+        if res_syn.State == "Success":
+            frulist = res_syn.Message[0].get("FRU", [])
+            if frulist != []:
+                psn = frulist[0].get('ProductSerial', 'UNKNOWN')
+        logtime = ftime("%Y%m%d%H%M%S")
+        dir_name = logtime + "_" + psn
+        # 创建目录
+        T6_path = os.path.abspath(__file__)
+        interface_path = os.path.split(T6_path)[0]
+        root_path = os.path.dirname(interface_path)
+        update_path = os.path.join(root_path, "update")
+        if not os.path.exists(update_path):
+            os.makedirs(update_path)
+        update_plog_path = os.path.join(update_path, dir_name)
+        if not os.path.exists(update_plog_path):
+            os.makedirs(update_plog_path)
+        log_path = os.path.join(update_plog_path, "updatelog")
+        if not os.path.exists(log_path):
+            with open(log_path, 'w') as newlog:
+                log_dict = {"log": []}
+                newlog.write(str(log_dict))
+        return log_path
+
 
     def clearauditlog(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def clearsystemlog(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def collectblackbox(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def setmediainstance(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def getmediainstance(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def getnetworklink(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def setnetworklink(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def setpowerbudget(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def getpowerbudget(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def getpreserveconfig(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def preserveconfig(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def getpsupeak(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def setpsupeak(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def setthreshold(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def geteventlogpolicy(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def seteventlogpolicy(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def getkvm(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def setkvm(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def getpowerconsumption(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def getsystemlog(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def getthreshold(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def setthreshold(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def setvirtualmedia(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def getvirtualmedia(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def setsmtp(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
     def setbmclogsettings(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M8 model does not support this feature.'])
+        result.Message(['The X3 model does not support this feature.'])
         return result
 
 def filePath(flagtype, args):
@@ -7325,12 +9027,6 @@ def wirte_log(log_path, stage="", state="", note=""):
                 log_list = log_cur_dict.get("log")
 
         with open(log_path, 'w') as logfile:
-            # {
-            #     "Time":"2018-11-20T10:20:12+08:00",
-            #     "Stage":"Upload File",
-            #     "State":"Invalid URI",
-            #     "Note":"Not support the protocol 'CIFS'."
-            #  }
             # 升级阶段：上传文件(Upload File)、文件校验(File Verify)、应用（刷写目标FLASH）(Apply)、生效(Activate)。
             # 错误状态：网络不通(Network Ping NOK)、无效URI(Invalid URI)、连接失败(Connect Failed)、文件不存在(File Not Exist)、空间不足(Insufficient Space)、格式错误(Format Error)、非法镜像(Illegal Image)、机型不支持(Unsupported Machine)、镜像与升级目标部件不匹配(Image and Target Component Mismatch)、BMC重启失败(BMC Reboot Failed)、版本校验失败(Version Verify Failed)、FLASH空间不足(Insufficient Flash)、FLASH写保护(FLASH Write Protection)、数据校验失败(Data Verify Failed)。
             # 正常进展：开始（Start）、进行中（In Progress）、完成（Finish）、成功（Success）、网络能ping通（Network Ping OK）、BMC重启成功（BMC Reboot Success）、升级完删除缓存的镜像成功(Delete Image Success)、升级重试第N次(Upgrade Retry N Times)、刷到暂存FLASH成功(Write to Temporary FLASH Success)、版本校验成功(Version Verify OK)、同步刷新另一片镜像成功(Sync Flash The Other Image Success)……。

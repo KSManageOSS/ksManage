@@ -3597,7 +3597,6 @@ class OpenBmcX2(Base):
             res.State('Failure')
         return res
 
-    # 2023年3月30日 M7 1.35.05 通过redfish配置bios body 必须带Attributes
     def formatBiosPatchBody(self, user_bios):
         return {"Attributes": user_bios}
 
@@ -3626,7 +3625,7 @@ class OpenBmcX2(Base):
 
     def _get_xml_file(self, args):
         xml_path = os.path.join(IpmiFunc.command_path, "bios") + os.path.sep
-        return xml_path + 'M8.xml'
+        return xml_path + 'X3.xml'
 
 
     def _get_xml_mapper(self, args, key, value):
@@ -3779,13 +3778,13 @@ class OpenBmcX2(Base):
     def setbootimage(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def getbootimage(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def getsysboot(self, client, args):
@@ -7013,169 +7012,169 @@ class OpenBmcX2(Base):
     def updatecpld(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def updatebios(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def fwupdate(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def clearauditlog(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def clearsystemlog(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def collectblackbox(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def setmediainstance(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def getmediainstance(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def getnetworklink(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def setnetworklink(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def setpowerbudget(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def getpowerbudget(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def getpreserveconfig(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def preserveconfig(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def getpsupeak(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def setpsupeak(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def geteventlogpolicy(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def seteventlogpolicy(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def getkvm(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def setkvm(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def getpowerconsumption(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def getsystemlog(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def getthreshold(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def setthreshold(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def setvirtualmedia(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def getvirtualmedia(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def setsmtp(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
     def setbmclogsettings(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M7 model does not support this feature.'])
+        result.Message(['The X2 model does not support this feature.'])
         return result
 
 def filePath(flagtype, args):

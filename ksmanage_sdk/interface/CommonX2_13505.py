@@ -9,12 +9,13 @@ from ksmanage_sdk.interface.ResEntity import ResultBean
 retry_count = 0
 
 
-# 2023年3月30日 M7 1.35.05
 class CommonX2_13505(CommonX2):
+    def formatBiosPatchBody(self, user_bios):
+        return {"Attributes": user_bios}
 
     def delsession(self, client, args):
         result = ResultBean()
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")

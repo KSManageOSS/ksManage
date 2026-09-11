@@ -8,4 +8,5 @@ retry_count = 0
 
 
 class CommonE2_11308(CommonE2):
-    pass
+    def formatBiosPatchBody(self, user_bios):
+        return {"Attributes": user_bios}

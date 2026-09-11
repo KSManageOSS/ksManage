@@ -97,7 +97,6 @@ def main(params):
     try:
         resultJson = targetMed(client, args)
     except Exception as e:
-
         res['State'] = "Failure"
         res['Message'] = ["Error occurs, request failed..."]
         return res

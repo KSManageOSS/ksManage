@@ -14,16 +14,20 @@ retry_count = 0
 
 
 class CommonE2(CommonX2):
+    def _get_xml_file(self):
+        xml_path = os.path.join(IpmiFunc.command_path, "bios") + os.path.sep
+        return xml_path + 'E2.xml'
+
     def setpowerbudget(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The A7 model does not support this feature.'])
+        result.Message(['The E2 model does not support this feature.'])
         return result
 
     def getpowerbudget(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The A7 model does not support this feature.'])
+        result.Message(['The E2 model does not support this feature.'])
         return result
 
     def getfw(self, client, args):
@@ -83,7 +87,7 @@ class CommonE2(CommonX2):
                 result.Message([fw.dict])
                 return result
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
