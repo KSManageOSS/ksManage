@@ -96,14 +96,7 @@ class RequestClient():
 
     def request(self, method, resource, headers=None, stream=None,
                 data=None, files=None, json=None, auth='', timeout=80):
-        """
-        if self.type == 'M4':
-            if self.port is not None:
-                url = r'http://%s:%d/%s' % (self.host, int(self.port), resource)
-            else:
-                url = r'http://%s/%s' % (self.host, resource)
-        else:
-        """
+
         if str(resource).startswith('/'):
             resource = resource[1:]
         if self.restport is not None:
@@ -111,13 +104,10 @@ class RequestClient():
                                          int(self.restport), resource)
         else:
             url = r'https://%s/%s' % (self.resthost, resource)
-        # print(url)
         r = None
         requests.packages.urllib3.disable_warnings()
         try:
             if method == 'POST':
-                # print("post")
-                # print(json)
                 r = requests.post(
                     url,
                     data=data,
@@ -158,7 +148,6 @@ class RequestClient():
                     json=json,
                     timeout=timeout)
             elif method == 'FILE':
-                # print('file',headers)
                 r = requests.post(
                     url, files=files, headers=headers, auth=auth, verify=False)
             else:

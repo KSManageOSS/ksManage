@@ -251,7 +251,6 @@ PCI_IDS_DEVICE_LIST = {
     0x1db5: "V100-SXM2 GPU",
     0x1b38: "P40 GPU",
     0x1db4: "V100-PCIE GPU",
-    # NF5468M5补充
     0x2031: "ISP8324-based 16Gb Fibre Channel to PCI Express Adapter",
     0x2532: "ISP2532-based 8Gb Fibre Channel to PCI Express HBA",
     0x101e: "GK110GL [Tesla K20X]",

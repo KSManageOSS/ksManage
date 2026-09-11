@@ -1,3 +1,10 @@
+include ksmanage_sdk/command/bios/E1.xml
+include ksmanage_sdk/command/bios/E2.xml
+include ksmanage_sdk/command/bios/X1.xml
+include ksmanage_sdk/command/bios/X1-N.xml
+include ksmanage_sdk/command/bios/X2.xml
+include ksmanage_sdk/command/bios/X2_5.10.00.xml
+include ksmanage_sdk/command/bios/X3.xml
 include ksmanage_sdk/route/interfaceRoute.yml
 include ksmanage_sdk/route/modelRoute.yml
 include ksmanage_sdk/command/RedfishUrl.yml

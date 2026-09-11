@@ -40,10 +40,8 @@ class HostTypeClient():
     def getProductNameByIPMI(self, args):
         host, username, passcode, port = self.getParam(args)
         if (host is None) or (username is None) or (passcode is None):
-            # 默认M5登陆***************************
             if '-V' in args or '-h' in args or '-v' in args:
                 return
-            # *************************************
             result = {"State": "Failure", "Message": [
                 "Parameter is missing,please check -H <HOST> -U <USERNAME> -P <PASSWORD>"]}
             return result
@@ -60,11 +58,11 @@ class HostTypeClient():
             hosttpye = configutil.get_platform(pn)
             if hosttpye == "":
                 hosttpye = pn
-            if hosttpye == "M7":
+            if hosttpye == "X2":
                 client = RequestClient.RequestClient()
                 client.setself(host, username, passcode, '', port, "lanplus")
                 if IpmiFunc.checkPlatform(client).get("bmc") == "01":
-                    hosttpye = "M7_redfish"
+                    hosttpye = "X2_redfish"
             impl, platform = configutil.getRouteOption(pn, version, hosttpye)
             if 'Error' in impl:
                 res['State'] = "Failure"
@@ -96,17 +94,6 @@ class HostTypeClient():
         PN = ""
         for i in range(8):
             PN = PN + chr(int(arr[i], 16))
-        #print PN
-        if PN == "NF5280M5":
-            if sysstr == 'Windows':
-                cmdb = "..\\tools\\ipmitool\\ipmitool.exe -I lanplus -H " + args.host + " -U " + \
-                    args.username + " -P " + args.password + " mc info|findstr /c:\"Firmware Revision\" 2>nul"
-            elif sysstr == 'Linux' or sysstr == 'Darwin':
-                cmdb = "ipmitool -I lanplus -H " + args.host + " -U " + args.username + \
-                    " -P " + args.password + " mc info |grep 'Firmware Revision'" + " 2>/dev/null"
-            resultb = self.execCmd(cmdb).strip()
-            if "1." in resultb:
-                PN = "NF5288M5"
         PNL = [PN]
         return PNL
 
@@ -128,7 +115,6 @@ class HostTypeClient():
         return "M4"
 
     def judge_by_ipmi_api(self, host, username, passcode, port):
-        productName = None
         try:
             client = RequestClient.RequestClient()
             client.setself(host, username, passcode, '', port, "lanplus")
@@ -136,8 +122,6 @@ class HostTypeClient():
             if productName is None:
                 return "", "cannot get Product Name(Model)."
             elif productName in ERR_dict:
-                res['State'] = "Failure"
-                res['Message'] = [ERR_dict.get(productName)]
                 return "", ERR_dict.get(productName)
             firmwareVersion = IpmiFunc.getFirmwareVersoinByMcinfo(client)
             if firmwareVersion is None:

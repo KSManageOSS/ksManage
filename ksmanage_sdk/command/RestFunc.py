@@ -24,7 +24,6 @@ import requests
 sys.path.append(os.path.dirname(sys.path[0]))
 
 retry_count = 3
-# M7 加密方式，0 不加密，1 RSA加密，2 Blowfish 加密
 # global encrypt_type_flag
 encrypt_type_flag = 0
 
@@ -1057,7 +1056,7 @@ def getMediaRedirectionGeneralSettingsByRest(client):
     return JSON
 
 
-def setMediaRedirection(client, mediaSettings, ff="M6"):
+def setMediaRedirection(client, mediaSettings, ff):
     if ff == "H2":
         return setMediaRedirectionH2(client, mediaSettings)
     if encrypt_type_flag == 1:
@@ -1323,7 +1322,7 @@ def addUserByRestM5(client, id, data):
     return JSON
 
 
-def addUserByRestM6(client, args, ff="M6"):
+def addUserByRestM6(client, args, ff):
     JSON = {}
     if args.uname is None or args.uname == "":
         JSON['code'] = 1
@@ -1415,7 +1414,7 @@ def setUserByRest(client, args):
     return JSON
 
 
-def setUserByRestM6(client, args, ff="M6"):
+def setUserByRestM6(client, args, ff):
     JSON = {}
     if args.uname is None or args.uname == "":
         JSON['code'] = 1
@@ -2004,6 +2003,371 @@ def locatePDiskByRest(client, ctrlId, deviceId, option):
     return JSON
 
 
+def importBiosCfgByRest(client, filepath):
+    '''
+    import bios configure file
+    :param client:
+    :param filepath:
+    :return:
+    '''
+    JSON = {}
+    header = client.getHearder()
+    header["X-Requested-With"] = "XMLHttpRequest"
+    header["Content-Type"] = "multipart/form-data;boundary=----WebKitFormBoundaryF4ZROI7nayCrLnwy"
+    header["Cookie"] = "" + header["Cookie"] + ";refresh_disable=1"
+
+    file_name = os.path.basename(filepath)
+
+    if not os.path.exists(filepath):
+        JSON["code"] = 1
+        JSON["data"] = "File path is error."
+        return JSON
+    if not os.path.isfile(filepath):
+        JSON["code"] = 2
+        JSON["data"] = "File name is needed."
+        return JSON
+
+    try:
+        if sys.version_info < (3, 0):
+            with open(filepath.decode('utf-8'), 'rb') as f:
+                content = f.read()
+                data = '------{0}{1}Content-Disposition: form-data; name="fwimage"; filename="{3}" {1}Content-Type: application/octet-stream{1}{1}{2}{1}------{0}--{1}'.format(
+                    'WebKitFormBoundaryF4ZROI7nayCrLnwy', '\r\n', content, file_name)
+                header["Content-Type"] = "multipart/form-data;boundary=----WebKitFormBoundaryF4ZROI7nayCrLnwy"
+        else:
+            data = encoder.MultipartEncoder(
+                fields={'fwimage': (file_name, open(filepath, 'rb').read(), 'application/octet-stream')},
+                boundary='----WebKitFormBoundaryF4ZROI7nayCrLnwy'
+            )
+            header["Content-Type"] = data.content_type
+        upload = client.request("POST", "api/uploadportbiossetup", data=data, headers=header)
+    except BaseException:
+        JSON["code"] = 3
+        JSON["data"] = "Please check the file content and check if there is Chinese in the path."
+        return JSON
+    if upload is None:
+        JSON["code"] = 4
+        JSON["data"] = 'Failed to call BMC interface api/uploadportbiossetup, response is none'
+        return JSON
+    elif upload.status_code == 200:
+        biossetup = client.request("PUT", "api/importbiossetup", header, None, None, None)
+        if biossetup is None:
+            JSON["code"] = 4
+            JSON["data"] = 'Failed to call BMC interface api/importbiossetup, response is none'
+            return JSON
+        elif biossetup.status_code == 200:
+            JSON["code"] = 0
+            JSON["data"] = " import bios cfg success."
+            return JSON
+        else:
+            biossetup = client.request("GET", "api/importbiossetup", header, None, None, None)
+            if biossetup is None:
+                JSON["code"] = 4
+                JSON["data"] = 'Failed to call BMC interface api/importbiossetup, response is none'
+                return JSON
+            elif biossetup.status_code == 200:
+                JSON["code"] = 0
+                JSON["data"] = "import bios cfg success."
+                return JSON
+            else:
+                JSON['code'] = 1
+                JSON['data'] = formatError("api/importbiossetup", biossetup)
+                return JSON
+    else:
+        JSON['code'] = 1
+        JSON['data'] = formatError("api/importbiossetup", upload)
+        return JSON
+
+
+def exportBiosCfgByRest(client, filepath):
+    '''
+    export bios setup configuration
+    :param client:
+    :param filepath:
+    :return:
+    '''
+    JSON = {}
+    header = client.getHearder()
+    file_name = os.path.basename(filepath)
+    path = os.path.abspath(filepath)
+    data = {'filename': file_name}
+    exdata = client.request("PUT", "api/biosoptionexdata", headers=header, json=data)
+
+    if exdata is None:
+        JSON["code"] = 1
+        JSON["data"] = 'Failed to call BMC interface api/biosoptionexdata, response is none'
+        return JSON
+    elif exdata.status_code == 200:
+        response = client.request("GET", "blackbox/export/{0}".format(file_name), data=None, json=None,
+                                  headers=header)
+        if response is None:
+            JSON["code"] = 1
+            JSON["data"] = 'Failed to call BMC interface ' + 'blackbox/export/{0}'.format(
+                file_name) + ', response is none'
+            return JSON
+        elif response.status_code == 200:
+            host = client.host
+            url = 'https://' + host + '/blackbox/export/' + file_name
+            response = requests.get(url, verify=False)
+            if response.status_code == 200:
+                try:
+                    with open(filepath, 'wb') as f:
+                        f.write(response.content)
+                    JSON["code"] = 0
+                    JSON["data"] = "bios config file export success: " + os.path.abspath(filepath)
+                    return JSON
+                except IOError:
+                    JSON["code"] = 4
+                    JSON["data"] = "please check the path."
+                    return JSON
+            else:
+                JSON["code"] = 4
+                JSON["data"] = "please check the path."
+                return JSON
+        else:
+            JSON['code'] = 1
+            JSON['data'] = formatError("blackbox/export/{0}".format(file_name), response)
+            return JSON
+    else:
+        JSON['code'] = 1
+        JSON['data'] = formatError("api/biosoptionexdata", exdata)
+        return JSON
+
+def importTwoBiosCfgByRest(client, filepath):
+    '''
+    import two kind bios configure file
+    :param client:
+    :param filepath:
+    :return:
+    '''
+    JSON = {}
+    header = copy.deepcopy(client.getHearder())
+    header["X-Requested-With"] = "XMLHttpRequest"
+    header["Content-Type"] = "application/json;charset=UTF-8"
+    header["Cookie"] = "" + header["Cookie"] + ";refresh_disable=1"
+    hearder = client.getHearder()
+    hearder["X-Requested-With"] = "XMLHttpRequest"
+    hearder["Content-Type"] = "application/json;charset=UTF-8"
+    hearder["Cookie"] = "" + hearder["Cookie"] + ";refresh_disable=1"
+
+    file_name = os.path.basename(filepath)
+
+    if not os.path.exists(filepath):
+        JSON["code"] = 1
+        JSON["data"] = "File path is error."
+        return JSON
+    if not os.path.isfile(filepath):
+        JSON["code"] = 2
+        JSON["data"] = "File name is needed."
+        return JSON
+    if file_name.split('.')[-1] == 'json':
+        format_flag = 1
+    elif file_name.split('.')[-1] == 'conf':
+        format_flag = 0
+    else:
+        JSON["code"] = 6
+        JSON["data"] = "please input file with suffix .json/.conf."
+        return JSON
+    try:
+        if sys.version_info < (3, 0):
+            with open(filepath.decode('utf-8'), 'rb') as f:
+                content = f.read()
+                data1 = '------{0}{1}Content-Disposition: form-data; name="fwUpload"; filename="{3}" {1}Content-Type: application/octet-stream{1}{1}{2}{1}------{0}--{1}'.format(
+                    'WebKitFormBoundaryrHy3txxyGHxjfO4K', '\r\n', content, file_name)
+                hearder["Content-Type"] = "multipart/form-data;boundary=----WebKitFormBoundaryrHy3txxyGHxjfO4K"
+        else:
+            data1 = encoder.MultipartEncoder(
+                fields={'fwUpload': (file_name, open(filepath, 'rb').read(), 'application/octet-stream')},
+                boundary='----WebKitFormBoundaryrHy3txxyGHxjfO4K'
+            )
+            hearder["Content-Type"] = data1.content_type
+        upload = client.request("POST", "api/uploadportbiossetup", data=data1,  json=data1, headers=hearder)
+    except BaseException:
+        JSON["code"] = 3
+        JSON["data"] = "Please check the file content and check if there is Chinese in the path."
+        return JSON
+    if upload is None:
+        JSON["code"] = 4
+        JSON["data"] = 'Failed to call BMC interface api/uploadportbiossetup, response is none'
+    elif upload.status_code == 200:
+        item = upload.json()
+        code = item.get('cc', -1)
+        if code == 0:
+            data = {}
+            import_rest = client.request("PUT", "api/importbiossetup", data=data, json=data, headers=header)
+            import_rest_bool = False
+            if import_rest is not None and import_rest.status_code == 200:
+                import_rest_bool = True
+            else:
+                import_rest = client.request("GET", "api/importbiossetup", headers=header)
+                if import_rest is not None and import_rest.status_code == 200:
+                    import_rest_bool = True
+            if import_rest_bool:
+                re = import_rest.json()
+                if not re:
+                    JSON['code'] = 0
+                    JSON['data'] = "Upload BIOS option files completed."
+                else:
+                    JSON['code'] = 1
+                    JSON['data'] = "Upload files failed."
+            else:
+                JSON['code'] = 1
+                JSON['data'] = "Upload files failed."
+        else:
+            JSON['code'] = 1
+            JSON['data'] = "Upload files failed, code is not 0."
+    else:
+        JSON['code'] = 1
+        JSON['data'] = formatError("api/importbiossetup?confformat={0}".format(format_flag), upload)
+    return JSON
+
+
+def exportTwoBiosCfgByRest(client, filepath, file_name):
+    '''
+    export conf or json bios setup configuration
+    :param client:
+    :param filepath:
+    :return:
+    '''
+    JSON = {}
+    header = client.getHearder()
+    if file_name.split('.')[-1] == 'json':
+        format_flag = 1
+    elif file_name.split('.')[-1] == 'conf':
+        format_flag = 0
+    else:
+        JSON["code"] = 6
+        JSON["data"] = "please input filename with suffix .json/.conf."
+        return JSON
+
+    data = {'confformat': format_flag, 'filename': file_name}
+    exdata = client.request("PUT", "api/biosoptionexdata", headers=header, json=data)
+
+    if exdata is None:
+        JSON["code"] = 1
+        JSON["data"] = 'Failed to call BMC interface api/biosoptionexdata, response is none'
+        return JSON
+    elif exdata.status_code == 200:
+        response = client.request("GET", "blackbox/export/{0}".format(file_name), data=None, json=None,
+                                  headers=header)
+        # print(response.content)
+        if response is None:
+            JSON["code"] = 1
+            JSON["data"] = 'Failed to call BMC interface ' + 'blackbox/export/{0}'.format(
+                file_name) + ', response is none'
+            return JSON
+        elif response.status_code == 200:
+            try:
+                with open(filepath, mode='wb') as f:
+                    f.write(response.content)
+                    f.close()
+                    JSON["code"] = 0
+                    JSON["data"] = "bios config file export success: " + os.path.abspath(filepath)
+                    return JSON
+            except BaseException:
+                JSON["code"] = 4
+                JSON["data"] = "please check the path."
+                return JSON
+        else:
+            JSON['code'] = 1
+            JSON['data'] = formatError("blackbox/export/{0}".format(file_name), response)
+            return JSON
+    else:
+        JSON['code'] = 1
+        JSON['data'] = formatError("api/biosoptionexdata", exdata)
+        return JSON
+
+
+def exportTwoBios_436_CfgByRest(client, filepath, file_name):
+    '''
+    export conf or json bios setup configuration
+    :param client:
+    :param filepath:
+    :return:
+    '''
+    JSON = {}
+    header = client.getHearder()
+    if file_name.split('.')[-1] == 'json':
+        format_flag = 1
+    elif file_name.split('.')[-1] == 'conf':
+        format_flag = 0
+    else:
+        JSON["code"] = 6
+        JSON["data"] = "please input filename with suffix .json/.conf."
+        return JSON
+
+    data = {'confformat': format_flag, 'filename': file_name}
+    exdata = client.request("PUT", "api/biosoptionexdata", headers=header, json=data)
+
+    if exdata is None:
+        JSON["code"] = 1
+        JSON["data"] = 'Failed to call BMC interface api/biosoptionexdata, response is none'
+        return JSON
+    elif exdata.status_code == 200:
+        response = client.request("GET", "tmp/export/{0}".format(file_name), data=None, json=None,
+                                  headers=header)
+        # print(response.content)
+        if response is None:
+            JSON["code"] = 1
+            JSON["data"] = 'Failed to call BMC interface ' + 'tmp/export/{0}'.format(file_name) + ', response is none'
+            return JSON
+        elif response.status_code == 200:
+            try:
+                with open(filepath, mode='wb') as f:
+                    f.write(response.content)
+                    f.close()
+                    JSON["code"] = 0
+                    JSON["data"] = "bios config file export success: " + os.path.abspath(filepath)
+                    return JSON
+            except BaseException:
+                JSON["code"] = 4
+                JSON["data"] = "please check the path."
+                return JSON
+        else:
+            JSON['code'] = 1
+            JSON['data'] = formatError("tmp/export/{0}".format(file_name), response)
+            return JSON
+    else:
+        JSON['code'] = 1
+        JSON['data'] = formatError("api/biosoptionexdata", exdata)
+        return JSON
+
+
+# onekeylog
+
+
+def getBiosDebugByRest(client):
+    JSON = {}
+    fwinfo = client.request("GET", "api/BiosDebugSwitch", data=None, json=None, headers=client.getHearder())
+    if fwinfo is None:
+        JSON["code"] = 1
+        JSON["data"] = 'Failed to call BMC interface api/BiosDebugSwitch, response is none'
+    elif fwinfo.status_code == 200:
+        JSON["code"] = 0
+        JSON["data"] = fwinfo.json()
+    else:
+        JSON['code'] = 1
+        JSON['data'] = formatError("api/BiosDebugSwitch", fwinfo)
+
+    return JSON
+
+
+def setBiosDebugByRest(client, enabled):
+    JSON = {}
+    data = {'Bios Debug': enabled}
+    fwinfo = client.request("POST", "api/BiosDebugSwitch", data=None, json=data, headers=client.getHearder())
+    if fwinfo is None:
+        JSON["code"] = 1
+        JSON["data"] = 'Failed to call BMC interface api/BiosDebugSwitch", response is none'
+    elif fwinfo.status_code == 200:
+        JSON["code"] = 0
+        JSON["data"] = fwinfo.json()
+    else:
+        JSON['code'] = 1
+        JSON['data'] = formatError("api/BiosDebugSwitch", fwinfo)
+
+    return JSON
+
 
 def generateOnekeylogByRest(client):
     # getinfo
@@ -2194,7 +2558,6 @@ def downloadBlackboxlogByRest(client, filepath, logtype):
 # onekeylog ned
 
 
-# onekey M6 start
 # 查看进度
 def getOnekeylogProgressByRestM6(client):
     JSON = {}
@@ -2256,9 +2619,6 @@ def downloadonekeylogByRestM6(client, filepath):
         JSON['code'] = 1
         JSON['data'] = formatError("api/logs/onekeylog/logfile", response)
         return JSON
-
-
-# onekey M6 end
 
 
 def getFwVersion(client):
@@ -2394,7 +2754,7 @@ def loginNoEncrypt(client):
     return headers
 
 
-def login_M6(client):
+def login_X1(client):
     global encrypt_type_flag
     try:
         headers = {}
@@ -2416,7 +2776,6 @@ def login_M6(client):
                         "Cookie": response.headers["set-cookie"]
                     }
                 else:
-                    # M6 好像也没有RSA加密方式
                     data = {
                         "username": encrypt_rsa(client.username, client.type),
                         "password": encrypt_rsa(client.passcode, client.type),
@@ -2447,20 +2806,19 @@ def login_M6(client):
     return headers
 
 
-def encrypt_rsa(sourceStr, ff="M7"):
+def encrypt_rsa(sourceStr, ff="X2"):
     try:
         if sourceStr is None or sourceStr == "":
             return sourceStr
         from Crypto.Cipher import PKCS1_v1_5
         from Crypto.PublicKey import RSA
-        if ff == "M6":
+        if ff == "X1":
             encrypt_key = "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv03c1doV6WQiuElhNqb\n" \
                       "WatOf/va4K7fYjKpFjgpZ+yP0GVJEUtVDBr0Ohb9RWajX1K2OvWiwc1bWpG3Nd3vdOep8edzDp7d6Z\n" \
                       "74Pno0JG7DwJqP9zNCwJjAiPy9Yqd+TK/++JwdTQkW2CrhIF58vFIKEfMGrSCLN108rfIvBBi3Jf/3b\n" \
                       "FM1Y+LAd+9Zza2hIbq/yKQRpVHifoa2s64c//JvC+ZW4KzXbcWXAT73IAKyZCCEyrj7r5HSn5C1rQg2\n" \
                       "HOWJvrew8q2d5KWN+YkvDIFLMVMyVWOAJf7h0yPo5vZeGi1vM90fngh5podmMXpSGs4Pr3c9PgyQnEk9\n" \
                       "xJgQi3QIDAQAB==\n-----END PUBLIC KEY-----"
-        # M7 & H2
         else:
             encrypt_key = "-----BEGIN PUBLIC KEY-----\nMIICIjANBgkqhkiG9w0BAQEFAAOCAg8AMIICCgKCAgEAvAIoJ+F0MiuinN903RNX\n"\
                     "z4umR3b0OackykNmXP+d5qRmxfRS6ymjGwmS1hxBVkGNAulpoeqNDQ1oeilc6IOI\n"\
@@ -2567,7 +2925,7 @@ def getSnmpInfoByRest(client):
     return JSON
 
 
-def setTrapComByRest(client, trapinfo, ff="M6"):
+def setTrapComByRest(client, trapinfo, ff):
     if encrypt_type_flag == 1:
         trapinfo['SnmpTrapCfg']['Community'] = encrypt_rsa(trapinfo['SnmpTrapCfg']['Community'], client.type)
         trapinfo['SnmpTrapCfg']['AUTHProtocol'] = encrypt_rsa(trapinfo['SnmpTrapCfg']['AUTHProtocol'], client.type)
@@ -2848,8 +3206,8 @@ def getEventLog(client, count, date, bmczone, showzone, health_flag):
     elif response.status_code == 200:
         JSON['code'] = 0
         result = response.json()
-        sensorType = NF5280M5_SensorType()
-        sensorDesc = NF5280M5_SensorDesc()
+        sensorType = E1_SensorType()
+        sensorDesc = E1_SensorDesc()
         import time
         import datetime
         # print(result)
@@ -3183,30 +3541,6 @@ def getidlM6(client, count, date, bmczone, showzone, health_flag):
                     # break
                     # 并非按照日期排列 中间会有2000年的数据
                     continue
-            # 将M6返回的日期中的时区修改为参数中默认的时区
-            '''
-            itemtimestamp = itemtimestamp - 60 *int(itemzoneint) + 60*int(showzone)
-            timeArray = time.gmtime(itemtimestamp)
-            TimeStamp = time.strftime('%Y-%m-%dT%H:%M', timeArray)
-            if showzone >= 0:
-                ew = "+"
-            else:
-                ew = "-"
-            zone_m = int(abs(showzone) % 60)
-            zone_h = int(abs(showzone / 60))
-            if zone_h < 10:
-                zone_h="0" + str(zone_h)
-            else:
-                zone_h=str(zone_h)
-            if zone_m < 10:
-                zone_m="0" + str(zone_m)
-            else:
-                zone_m=str(zone_m)
-
-            zone_x = ew + str(zone_h) + ":" + str(zone_m)
-            time_x=TimeStamp + zone_x
-            txlog["eventTimestamp"]=time_x
-            '''
             txlog["EventTimestamp"] = item["logtime"]
             txlog["Entity"] = item["type"]
             if not health_flag:
@@ -3682,7 +4016,7 @@ def getLDAPM6(client):
     return JSON
 
 
-def setLDAPM6(client, ldap, data_file, ff="M6"):
+def setLDAPM6(client, ldap, data_file, ff):
     JSON = {}
     if encrypt_type_flag == 1:
         ldap['password'] = encrypt_rsa(ldap['password'], client.type)
@@ -3834,7 +4168,7 @@ def getADM6(client):
     return JSON
 
 
-def setADM6(client, ldap, ff="M6"):
+def setADM6(client, ldap, ff):
     JSON = {}
     if encrypt_type_flag == 1:
         ldap["secret_password"] = encrypt_rsa(ldap["secret_password"], client.type)
@@ -4454,7 +4788,6 @@ def getverifyresultByRest(client):
 
 # T6 fwupdate end
 
-# M5 bmc upgrade { "image_update": 3, "reboot_bmc": 1 }
 # choose bmc update mode active standby both
 def setFlashImageConfig(client, image):
     JSON = {}
@@ -4730,9 +5063,6 @@ def setBMCImageByRest(client, image):
         JSON['data'] = formatError("api/maintenance/dual_image_config", response)
     return JSON
 
-
-# M5 bmc upgrade end
-# M5 bios upgrade
 # 获取BIOS 的Flash 模式 { "id": 1, "mode": 0 }
 def getBiosFlashModeByRest(client):
     JSON = {}
@@ -4928,9 +5258,6 @@ def getBiosUpgradeProgessByRest(client):
         JSON['code'] = 1
         JSON['data'] = formatError("api/maintenance/firmware/flash-progress", response)
     return JSON
-
-
-# M5 bios upgrade end
 
 
 def uploadBMCfgByRest(client, filepath):
@@ -5264,7 +5591,7 @@ def getSMTPByRest(client):
     return JSON
 
 
-def setSMTPByRest(client, smtpinfo, ff="M6"):
+def setSMTPByRest(client, smtpinfo, ff):
     JSON = {}
     # flag = judge_encrypt(client)
     if encrypt_type_flag == 1:
@@ -5301,7 +5628,7 @@ def getSNMPByRest(client):
     return JSON
 
 
-def setSNMPByRest(client, smtpinfo, ff="M6"):
+def setSNMPByRest(client, smtpinfo, ff):
     JSON = {}
     if encrypt_type_flag == 1:
         smtpinfo['SnmpCfg']['AUTHProtocol'] = encrypt_rsa(smtpinfo['SnmpCfg']['AUTHProtocol'], client.type)
@@ -7506,7 +7833,7 @@ def getHBAInfoByRest(client):
         JSON['data'] = formatError("api/status/hba_info", response)
     return JSON
 
-class NF5280M5_SensorType():
+class E1_SensorType():
     def __init__(self):
         self.getSensorTypeKey = getSensorTypeKey
 
@@ -7549,49 +7876,29 @@ def getgpu(client):
     return JSON
 
 
-class NF5280M5_SensorDesc():
+class E1_SensorDesc():
 
     def __init__(self):
         command_path = os.path.dirname(os.path.realpath(__file__))
-        ipmi_path = os.path.join(command_path, "M5Log")
+        ipmi_path = os.path.join(command_path, "E1Log")
         sys.path.append(ipmi_path)
 
-        from ksmanage_sdk.command.M5Log import eventLogString
+        from ksmanage_sdk.command.E1Log import eventLogString
         self.eventLogString = eventLogString.eventLogString
 
-        from ksmanage_sdk.command.M5Log import sensorSpecificEventStr
+        from ksmanage_sdk.command.E1Log import sensorSpecificEventStr
         self.sensorSpecificEventStr = sensorSpecificEventStr.sensorSpecificEventStr
 
-        from ksmanage_sdk.command.M5Log import biosPostEventStr
+        from ksmanage_sdk.command.E1Log import biosPostEventStr
         self.biosPostEventStr = biosPostEventStr.biosPostEventStr
 
-        from ksmanage_sdk.command.M5Log import sensorEventStr
+        from ksmanage_sdk.command.E1Log import sensorEventStr
         self.sensorEventStr = sensorEventStr.sensorEventStr
 
-        from ksmanage_sdk.command.M5Log import commonInfoStr
+        from ksmanage_sdk.command.E1Log import commonInfoStr
         self.commonInfoStr = commonInfoStr.commonInfoStr
 
-        # import showSensorDesc
-        # ShowSensorDesc = showSensorDesc.ShowSensorDesc()
         self.showSensorDesc = showSensorDesc
-        # filepath = os.path.abspath("./../script/mappers/dict/M5/showSensorDesc.py")
-        # mod = os.path.splitext(filepath)[0]  # 子命令模块名称('setBios', '.py')
-        # mod_im = import_module(mod)  #
-        # self.showSensorDesc = getattr(mod_im, 'showSensorDesc1')
-
-        # RecordID:2
-        # RecordType:2
-        # TimeStamp:1499276566
-        # GenID1:32
-        # GenID2:0
-        # EvmRev:4
-        # SensorType:13
-        # SensorName:HDD0_Status
-        # EventDirType:111
-        # EventData1:0
-        # EventData2:255
-        # EventData3:255
-        # Severity:0
 
     def getSensorDesc(self, item):
         desc = self.showSensorDesc(self.eventLogString, self.sensorSpecificEventStr, self.biosPostEventStr,

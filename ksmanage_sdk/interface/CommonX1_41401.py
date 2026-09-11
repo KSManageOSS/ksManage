@@ -10,7 +10,7 @@ class CommonX1_41401(CommonX1):
 
     def setpdisk(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -27,7 +27,7 @@ class CommonX1_41401(CommonX1):
 
     def setldisk(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")

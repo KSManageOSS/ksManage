@@ -168,7 +168,7 @@ class CommonX1(Base):
 
     def getpowerbudget(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -264,7 +264,7 @@ class CommonX1(Base):
     def getpowerbudgetrange(self, client, args):
         res = ResultBean()
         try:
-            headers = RestFunc.login_M6(client)
+            headers = RestFunc.login_X1(client)
             if headers == {}:
                 login_res = ResultBean()
                 login_res.State("Failure")
@@ -341,7 +341,7 @@ class CommonX1(Base):
 
         res = ResultBean()
         try:
-            headers = RestFunc.login_M6(client)
+            headers = RestFunc.login_X1(client)
             if headers == {}:
                 login_res = ResultBean()
                 login_res.State("Failure")
@@ -544,7 +544,7 @@ class CommonX1(Base):
         '''
         clear_result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -564,6 +564,548 @@ class CommonX1(Base):
         # logout
         RestFunc.logout(client)
         return clear_result
+    def _get_xml_mapper(self, args, key, value, xmlfilepath):
+        """
+            {
+                'descriptionName': {
+                    'description': 'descriptionName',
+                    'type': 'int/str/list/dict',
+                    'match': True/False,
+                    'parent': 'server_bios_parent_key',
+                    'getter': 'server_bios_key',
+                    'setter': {
+                        'cmd': 'value' 或 'value': 'cmd' 根据参数确定
+                    }
+                }
+            }
+        """
+        try:
+            xml_filepath = xmlfilepath
+            import xml.etree.ElementTree as ET
+            tree = ET.parse(xml_filepath)
+            server = tree.getroot()
+            map_dict = {}
+            for items in server:
+                for item in items:
+                    map_dict[item.find('name').find('description').text.lower().replace(" ", "")] = {
+                        'description': item.find('name').find('description').text,
+                        'type': 'str' if item.find('type') is None else item.find('type').text,
+                        'match': True if item.find('match') is None else False if item.find(
+                            'match').text == 'False' else True,
+                        'parent': None if item.find('parent') is None else item.find('parent').text,
+                        'getter': item.find('getter').text,
+                        'setter': {
+                            setter.find(key).text: setter.find(value).text for setter in item.find('setters')
+                        },
+                        'conditions': {} if item.find('conditions') is None else {
+                            setter.find("key").text: setter.find("value").text for setter in item.find('conditions')
+                        },
+                    }
+            return True, map_dict
+        except Exception as e:
+            return False, str(e)
+
+    def _get_xml(self, args):
+        """
+            {
+                'getter': {
+                    'description': 'descriptionName',
+                    'type': 'int/str/list/dict',
+                    'match': True/False,
+                    'parent': 'server_bios_parent_key',
+                    'getter': 'server_bios_key',
+                    'setter': {
+                        'cmd': 'value'
+                    },
+                    'condition': {
+                        'getter': 'cmd'
+                    }
+                }
+            }
+        """
+        try:
+            xml_filepath = self._get_xml_file()
+            import xml.etree.ElementTree as ET
+            tree = ET.parse(xml_filepath)
+            server = tree.getroot()
+            map_dict = {}
+            for items in server:
+                for item in items:
+                    map_dict[item.find('getter').text] = {
+                        'description': item.find('name').find('description').text,
+                        'type': 'str' if item.find('type') is None else item.find('type').text,
+                        'match': True if item.find('match') is None else False if item.find(
+                            'match').text == 'False' else True,
+                        'parent': None if item.find('parent') is None else item.find('parent').text,
+                        'getter': item.find('getter').text,
+                        'setter': {
+                            setter.find("cmd").text: setter.find("value").text for setter in item.find('setters')
+                        },
+                        'conditions': {} if item.find('conditions') is None else {
+                            setter.find("key").text: setter.find("value").text for setter in item.find('conditions')
+                        },
+                    }
+            return True, map_dict
+        except Exception as e:
+            return False, str(e)
+
+    def _transfer_value(self, origin_value, value_map, user_key):
+        """
+        服务器原始bios配置值 -> 符合配置文件约束的配置值
+        args:
+            origin_value: 服务器原始bios值
+            value_map: 机型映射文件{cmd: value}
+            user_key: 当前需要转换的description，用来特殊处理BootOption
+        returns:
+            转换后的值
+        """
+        if isinstance(origin_value, list):
+            if user_key.startswith(('UEFIBootOption', 'LegacyBootOption')):
+                index = int(user_key[-1:]) - 1
+                return value_map.get(origin_value[index], origin_value[index])
+            else:
+                return [value_map.get(str(value), str(value)) for value in origin_value]
+        elif isinstance(origin_value, dict):
+            return {k: value_map.get(str(v), str(v)) for k, v in origin_value}
+        else:
+            return value_map.get(str(origin_value), None)
+
+    def getbios(self, client, args):
+        bios_result = ResultBean()
+        login_header, login_id = RedfishFunc.login(client)
+        if not login_header or not login_id or 'login error' in login_id:
+            bios_result.State('Failure')
+            bios_result.Message(['login session service failed, please check username/password/host/port'])
+            return bios_result
+        args.Attribute = None
+        server_result = RedfishFunc.getBiosV1ByRedfish(client, login_header)
+        if server_result.get('code') == 0 and server_result.get('data'):
+            server_bios = server_result.get('data')
+            RedfishFunc.logout(client, login_id, login_header)
+            xml_path = os.path.join(IpmiFunc.command_path, "bios") + os.path.sep
+            if "IioVmdOnStackPch" in server_result.get('data').keys():
+                xmlfilepath = xml_path + "X1-N.xml"
+            else:
+                xmlfilepath = xml_path + "X1.xml"
+
+            # 获取映射信息
+            mapper_result = self._get_xml_mapper(args, 'cmd', 'value', xmlfilepath)
+            attr_dict = {}
+            if mapper_result[0]:
+                attr_dict = mapper_result[1]
+            else:
+                bios_result.Message([mapper_result[1]])
+                bios_result.State('Failure')
+                return bios_result
+
+            attr_request = []  # 统一处理-A指定的配置项或所有可获取的配置项
+            if args.Attribute:  # 获取指定BIOS
+                if args.Attribute.strip().lower() not in attr_dict:
+                    bios_result.Message(["[{}] is invalid option.".format(args.Attribute)])
+                    bios_result.State('Failure')
+                    return bios_result
+                attr_request.append(args.Attribute.strip().lower())
+            else:  # 获取全部BIOS项
+                attr_request = list(attr_dict.keys())
+
+            bios = {}
+            for attr_lower in attr_request:
+                attr = attr_dict[attr_lower]['getter']
+                attr_parent = attr
+                attr_desc = attr_dict[attr_lower]['description']
+                if attr_parent not in server_bios:
+
+                    # 根据指定的参数确定输出的提示信息
+                    if args.Attribute:
+                        bios_result.State('Failure')
+                        bios_result.Message(["can't get the value of [{}].".format(attr_desc)])
+                        return bios_result
+                    else:
+                        bios[attr_desc] = None
+
+                else:
+                    l1_bios_value = server_bios[attr_parent]
+                    if isinstance(l1_bios_value, dict):
+                        if attr in l1_bios_value:
+                            bios[attr_desc] = self._transfer_value(l1_bios_value[attr], attr_dict[attr_lower]['setter'],
+                                                                   attr_desc)
+                        elif attr[:-1] in l1_bios_value:
+                            bios[attr_desc] = self._transfer_value(l1_bios_value[attr[:-1]][int(attr[-1])], attr_dict[attr_lower]['setter'],
+                                                                   attr_desc)
+                        else:
+
+                            # 根据指定的参数确定输出的提示信息
+                            if args.Attribute:
+                                bios_result.State('Failure')
+                                bios_result.Message(
+                                    ["can't get value of [{}].".format(attr_desc)])
+                                return bios_result
+                            else:
+                                bios[attr_desc] = None
+
+                    else:
+                        bios[attr_desc] = l1_bios_value
+            if 'fileurl' not in args:
+                bios_result.State('Success')
+                bios_result.Message([bios])
+            elif args.fileurl is not None:
+                flag, file_path, file_name = fileUtil.parseUrl(args.fileurl)
+                if not flag:
+                    bios_result.State("Failure")
+                    bios_result.Message(['bios file path is not valid.'])
+                else:
+                    if file_name == "":
+                        file_name = "bios.json"
+                    if os.path.splitext(file_name)[1] != ".json":
+                        bios_result.State("Failure")
+                        bios_result.Message(['bios file should be xxx.json.'])
+                        return bios_result
+                    flag2, fileurl_last = fileUtil.checkUrl(os.path.join(file_path, file_name))
+                    if flag2:
+                        with open(fileurl_last, 'w') as f:
+                            f.write(json.dumps(bios, default=lambda o: o.__dict__, indent=4, ensure_ascii=True))
+                        bios_result.State('Success')
+                        bios_result.Message(["bios export to " + fileurl_last])
+                    else:
+                        bios_result.State("Failure")
+                        bios_result.Message([fileurl_last])
+            else:
+                bios_result.State('Success')
+                bios_result.Message([bios])
+        else:
+            bios_result.State('Failure')
+            bios_result.Message([server_result.get('data')])
+        return bios_result
+
+
+    # 整理输出
+    # type 1本次设置不符合 2即将生效不符合 3当前值不符合
+    def formatCondition(self, conditionkey, conditionvalue, conditionvalue2, type):
+        conditioninfo = ""
+        if type == 1:
+            conditioninfo = conditionkey + " must be " + conditionvalue + ", but the value is setted to " + conditionvalue2
+        elif type == 2:
+            conditioninfo = conditionkey + " must be " + conditionvalue + ", but the value will be setted to " + conditionvalue2
+        elif type == 3:
+            conditioninfo = conditionkey + " must be " + conditionvalue + ", but the current value is " + conditionvalue2
+        return conditioninfo
+
+    # 判断-A的值是否在选项中
+    def judgeAttInListM5(self, attr, descriptionList):
+        flag = False
+        if attr in descriptionList:
+            flag = True
+        return flag
+
+    # 判断是否可以设置
+    def judgeCondition(self, biossetdict, biosfuturedict, bioscurdict, bioshelplist):
+        conditionflag = True
+        # getter: {conditiongetter:{}}
+        conditionDict = {}
+        # getter:  {getter2: value}
+        condition_dict = {}
+        # getter: description
+        bios_dict = {}
+        # getter: {cmd: value}
+        bios_value_dict = {}
+        for bioshelp in bioshelplist:
+            condition_dict[bioshelp.get("getter")] = bioshelp.get("condition")
+            bios_dict[bioshelp.get("getter")] = bioshelp.get("description")
+            setterlist = bioshelp.get("setter")
+            value_dict={}
+            for setter in setterlist:
+                value_dict[setter.get("cmd")] = setter.get("value")
+            bios_value_dict[bioshelp.get("getter")] = value_dict
+        errordict={}
+        for bioskey, biosvalue in biossetdict.items():
+            conditions = condition_dict.get(bioskey)
+            errorlist = []
+            errorinfo = ""
+            for conditionkey,conditionvalue in conditions.items():
+                #isrest展示key
+                conditionkeyshow = bios_dict.get(conditionkey)
+                #{bmc value: isrest value}
+                conditionvaluedict = bios_value_dict.get(conditionkey)
+                conditionvalueshow = conditionvaluedict.get(conditionvalue, conditionvalue)
+                #比较当前设置值
+                if biossetdict.get(conditionkey):
+                    conditonvalue_set = biossetdict.get(conditionkey)
+                    if conditionvalue == conditonvalue_set:
+                        continue
+                    else:
+                        errorlist.append(self.formatCondition(conditionkeyshow, conditionvalueshow, conditionvaluedict.get(conditonvalue_set), 1))
+                        continue
+                #比较即将生效值
+                if biosfuturedict:
+                    if biosfuturedict.get(conditionkey):
+                        conditonvalue_future = biosfuturedict.get(conditionkey)
+                        if conditionvalue == conditonvalue_future:
+                            continue
+                        else:
+                            errorlist.append(self.formatCondition(conditionkeyshow, conditionvalueshow, conditionvaluedict.get(conditonvalue_future), 2))
+                            continue
+                #比较当前值
+                if bioscurdict.get(conditionkey):
+                    conditonvalue_current = bioscurdict.get(conditionkey)
+                    if conditionvalue == conditonvalue_current:
+                        continue
+                    else:
+                        errorlist.append(self.formatCondition(conditionkeyshow, conditionvalueshow, conditionvaluedict.get(conditonvalue_current), 3))
+                        continue
+            if errorlist != []:
+                errorinfo = ",".join(errorlist)
+                errordict[bios_dict.get(bioskey)]=errorinfo
+        if errordict == {}:
+            return True, None
+        else:
+            return False, errordict
+
+    def _get_xml_file(self, res):
+        xml_path = os.path.join(IpmiFunc.command_path, "bios") + os.path.sep
+        if "IioVmdOnStackPch" in res.keys():
+            xmlfilepath = xml_path + "X1-N.xml"
+        else:
+            xmlfilepath = xml_path + "X1.xml"
+        return xmlfilepath
+
+    def update_xmlinfo(self, client, login_header, xmlhelp):
+        Bios_result = ResultBean()
+        attr_result = RedfishFunc.getBIOSAttrByRedfish(client, login_header)
+        if attr_result.get('code') == 0:
+            json_url = attr_result.get('data')
+            json_result = RedfishFunc.getBIOSAttrJsonByRedfish(client, login_header, json_url)
+            if json_result.get('code') == 0:
+                json_data = json_result.get('data')
+                if "UefiBootOrder1" in json_data.keys():
+                    item_value = json_data.get("UefiBootOrder1")
+                    for item_1 in xmlhelp:
+                        if item_1.get('getter') == "UefiBootOrder1" or \
+                                item_1.get('getter') == "UefiBootOrder2" or \
+                                item_1.get('getter') == "UefiBootOrder3" or \
+                                item_1.get('getter') == "UefiBootOrder4":
+                            setter_list = []
+                            for item_2 in item_value:
+                                setter_list.append(
+                                    {"cmd": item_2.get("ValueName"), "value": item_2.get("ValueName")})
+                            item_1['setter'] = setter_list
+                elif "LegacyBootOrder1" in json_data.keys():
+                    item_value = json_data.get("LegacyBootOrder1")
+                    for item_1 in xmlhelp:
+                        if item_1.get('getter') == "LegacyBootOrder1" or \
+                                item_1.get('getter') == "LegacyBootOrder2" or \
+                                item_1.get('getter') == "LegacyBootOrder3" or \
+                                item_1.get('getter') == "LegacyBootOrder4":
+                            setter_list = []
+                            for item_2 in item_value:
+                                setter_list.append(
+                                    {"cmd": item_2.get("ValueName"), "value": item_2.get("ValueName")})
+                            item_1['setter'] = setter_list
+                Bios_result.State('Success')
+                Bios_result.Message([xmlhelp])
+            else:
+                Bios_result.State('Failure')
+                Bios_result.Message([str(json_result.get('data'))])
+        else:
+            Bios_result.State('Failure')
+            Bios_result.Message([str(attr_result.get('data'))])
+
+        return Bios_result
+
+    def setbios(self, client, args):
+        Bios_result = ResultBean()
+        # 不输入-L
+        if 'list' not in args or ('list' in args and args.list is False):
+            if args.attribute is None and args.value is None and args.fileurl is None:
+                Bios_result.Message(['please input a command at least.'])
+                Bios_result.State('Failure')
+                return Bios_result
+            elif args.attribute is None and args.value is None and args.fileurl is not None:
+                if not os.path.exists(args.fileurl) or not os.path.isfile(args.fileurl):
+                    Bios_result.Message(['file path error. Please input correct filepath.'])
+                    Bios_result.State('Failure')
+                    return Bios_result
+                try:
+                    biosJson = self.restore(client, args.fileurl)
+                    if len(biosJson) == 0:
+                        Bios_result.Message(['file is empty.'])
+                        Bios_result.State('Failure')
+                        return Bios_result
+                except:
+                    Bios_result.Message(['file format error.'])
+                    Bios_result.State('Failure')
+                    return Bios_result
+            elif args.attribute is not None and args.value is not None and args.fileurl is None:
+                pass
+            else:
+                Bios_result.Message(['-a must be used with -v,mutually exclusive with -f.'])
+                Bios_result.State('Failure')
+                return Bios_result
+
+        login_header, login_id = RedfishFunc.login(client)
+        if login_header == {} or "login error" in login_id or login_id == '':
+            Bios_result.State("Failure")
+            Bios_result.Message(['login session service failed, please check username/password/host/port'])
+            return Bios_result
+        data = {'Attributes': {}}
+        result = RedfishFunc.getBiosV1ByRedfish(client, login_header)
+        boot_option = ['UEFIBootOption1', 'UEFIBootOption2', 'UEFIBootOption3', 'UEFIBootOption4', 'LegacyBootOption1',
+                       'LegacyBootOption2', 'LegacyBootOption3', 'LegacyBootOption4']
+        if result.get('code') == 0 and result.get('data') is not None:
+            xmlfilepath = self._get_xml_file(result.get('data'))
+            if os.path.exists(xmlfilepath) is False:
+                Bios_result.Message([os.path.basename(xmlfilepath) + ' file not exist.'])
+                Bios_result.State('Failure')
+                RedfishFunc.logout(client, login_id, login_header)
+                return Bios_result
+            biosconfutil = configUtil.configUtil()  # 实例化类对象
+            blongtoSet, descriptionList, infoList = biosconfutil.getSetOption(xmlfilepath)  # 读取xml文件，返回信息
+            updateresult = self.update_xmlinfo(client, login_header, infoList)
+            if updateresult.State != "Success":
+                Bios_result.Message(["get BIOS attribute failed."])
+                Bios_result.State('Failure')
+                RedfishFunc.logout(client, login_id, login_header)
+                return updateresult
+            infoList = updateresult.Message[0]
+            if 'list' in args and args.list:
+                help_list = []
+                for info in infoList:
+                    help_list.append('{:<35}: {}'.format(info['description'], list(item.get('value') for item in info.get('setter'))))
+                Bios_result.Message(help_list)
+                Bios_result.State('Success')
+                RedfishFunc.logout(client, login_id, login_header)
+                return Bios_result
+            des_value = {}  # description和支持设置的value对应
+            des_key = {}  # description和getter对应
+            for list_1 in infoList:
+                des_key[list_1['description']] = list_1['getter']
+                setter_value = []
+                for item in list_1['setter']:
+                    setter_value.append(item['value'])
+                des_value[list_1['description']] = setter_value
+
+            if args.attribute is None and args.value is None and args.fileurl is not None:
+                for key, value in biosJson.items():
+                    if str(value).lower() == "enable":
+                        value = "Enabled"
+                    if str(value).lower() == "disable":
+                        value = "Disabled"
+                    if self.judgeAttInListM5(key.replace(" ", ""), descriptionList) is False:
+                        Bios_result.State('Failure')
+                        Bios_result.Message(["Please check your attribute spell of '{0}' by -L parameter!".format(key)])
+                        # logout
+                        RedfishFunc.logout(client, login_id, login_header)
+                        return Bios_result
+                    # 执行单个设置 先读取文件，判断-a -v是否在列表中
+                    if self.judgeAttInListM5(des_key[key.replace(" ", "")], result.get('data').keys()) is False:
+                        Bios_result.State('Failure')
+                        Bios_result.Message(["'{0}' is not in set options.".format(key)])
+                        # logout
+                        RedfishFunc.logout(client, login_id, login_header)
+                        return Bios_result
+                    if key in boot_option:
+                        for item in des_value[key.replace(" ", "")]:
+                            if str(item).startswith(value):
+                                value = item
+                                break
+
+                    values = des_value.get(key.replace(" ", ""), [])
+                    if len(values) == 1:
+                        valuestr = values[0]
+                        if "~" in valuestr:
+                            min = valuestr.split("~")[0]
+                            max = valuestr.split("~")[1]
+                        elif "-" in valuestr:
+                            min = valuestr.split("-")[0]
+                            max = valuestr.split("-")[1]
+                        if int(value) < int(min) or int(value) > int(max):
+                            Bios_result.State('Failure')
+                            Bios_result.Message(["The scope of {0} is {1}!".format(key, valuestr)])
+                            # logout
+                            RedfishFunc.logout(client, login_id, login_header)
+                            return Bios_result
+
+                    else:
+                        if str(value) not in des_value[key.replace(" ", "")]:
+                            Bios_result.State('Failure')
+                            Bios_result.Message(["{0} does not support setting to {1}!".format(key, value)])
+                            # logout
+                            RedfishFunc.logout(client, login_id, login_header)
+                            return Bios_result
+                        data['Attributes'][des_key[key.replace(" ", "")]] = str(value)
+            elif args.attribute is not None and args.value is not None and args.fileurl is None:
+                if str(args.value).lower() == "enable":
+                    args.value = "Enabled"
+                if str(args.value).lower() == "disable":
+                    args.value = "Disabled"
+                if self.judgeAttInListM5(args.attribute.replace(" ", ""), descriptionList) is False:
+                    Bios_result.State('Failure')
+                    Bios_result.Message(
+                        ["Please check your attribute spell of '{0}' by -L parameter!".format(args.attribute)])
+                    # logout
+                    RedfishFunc.logout(client, login_id, login_header)
+                    return Bios_result
+                if self.judgeAttInListM5(des_key[args.attribute.replace(" ", "")], result.get('data').keys()) is False:
+                    Bios_result.State('Failure')
+                    Bios_result.Message(["'{0}' is not in set options.".format(args.attribute)])
+                    # logout
+                    RedfishFunc.logout(client, login_id, login_header)
+                    return Bios_result
+                if args.attribute in boot_option:
+                    for item in des_value[args.attribute.replace(" ", "")]:
+                        if str(item).startswith(args.value):
+                            args.value = item
+                            break
+
+                values = des_value.get(args.attribute.replace(" ", ""), [])
+                if len(values) == 1:
+                    valuestr = values[0]
+                    if "~" in valuestr:
+                        min = valuestr.split("~")[0]
+                        max = valuestr.split("~")[1]
+                    elif "-" in valuestr:
+                        min = valuestr.split("-")[0]
+                        max = valuestr.split("-")[1]
+                    if int(args.value) < int(min) or int(args.value) > int(max):
+                        Bios_result.State('Failure')
+                        Bios_result.Message(["The scope of {0} is {1}!".format(args.attribute, valuestr)])
+                        # logout
+                        RedfishFunc.logout(client, login_id, login_header)
+                        return Bios_result
+
+                    data['Attributes'][des_key[args.attribute.replace(" ", "")]] = int(args.value)
+                else:
+                    if str(args.value) not in values:
+                        Bios_result.State('Failure')
+                        Bios_result.Message(["{0} does not support setting to {1}!".format(args.attribute, args.value)])
+                        # logout
+                        RedfishFunc.logout(client, login_id, login_header)
+                        return Bios_result
+                    data['Attributes'][des_key[args.attribute.replace(" ", "")]] = str(args.value)
+
+            # 获取future
+            future_result = RedfishFunc.getBiosFuture(client, login_header)
+            # 检查前置项
+            conditionflag, conditionmessage = self.judgeCondition(data['Attributes'], future_result.get('data'),
+                                                                  result.get('data'), infoList)
+            if not conditionflag:
+                Bios_result.State('Failure')
+                Bios_result.Message([conditionmessage])
+                # logout
+                RedfishFunc.logout(client, login_id, login_header)
+                return Bios_result
+
+            setbiosres = RedfishFunc.setBiosV1SDByRedfish(client, data, result.get('headers'), login_header)
+            if setbiosres.get('code') == 0:
+                Bios_result.State("Success")
+                Bios_result.Message([])
+            else:
+                Bios_result.State('Failure')
+                Bios_result.Message([setbiosres.get('data')])
+        else:
+            Bios_result.State("Failure")
+            Bios_result.Message(['get bios ' + str(result.get('data'))])
+        RedfishFunc.logout(client, login_id, login_header)
+        return Bios_result
 
     def setredfishpwd(self, client, args):
         set_result = ResultBean()
@@ -672,7 +1214,7 @@ class CommonX1(Base):
                 result.Message([fw.dict])
                 return result
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -801,7 +1343,7 @@ class CommonX1(Base):
 
         # check param end
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -846,7 +1388,7 @@ class CommonX1(Base):
 
     def getbmcinfo(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -962,7 +1504,7 @@ class CommonX1(Base):
         :return:
         '''
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -1092,7 +1634,7 @@ class CommonX1(Base):
         :return:
         '''
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -1218,7 +1760,7 @@ class CommonX1(Base):
             checkparam_res.Message(["The file url is not file."])
             return checkparam_res
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -1519,7 +2061,7 @@ class CommonX1(Base):
                     import time
                     time.sleep(20)
                 # login
-                headers = RestFunc.login_M6(client)
+                headers = RestFunc.login_X1(client)
                 if headers != {}:
                     # 记录session
                     with open(session_path, 'w') as new_session:
@@ -1943,7 +2485,7 @@ class CommonX1(Base):
 
                     elif res_progress.get('code') == 401:
                         # 401 没有权限不算错，因为bmc还通，这时候登录不上才算失败
-                        headers = RestFunc.login_M6(client)
+                        headers = RestFunc.login_X1(client)
                         if headers != {}:
                             client.setHearder(headers)
                         else:
@@ -2145,7 +2687,7 @@ class CommonX1(Base):
                             result.Message)
                         break
                     try:
-                        headers = RestFunc.login_M6(client)
+                        headers = RestFunc.login_X1(client)
                         if headers != {}:
                             with open(session_path, 'w') as new_session:
                                 new_session.write(str(headers))
@@ -2278,7 +2820,7 @@ class CommonX1(Base):
                             if str(task["progress"]) == 100:
                                 count_1002 = count_1002 + 1
                     elif res_progress.get('code') == 401:
-                        headers = RestFunc.login_M6(client)
+                        headers = RestFunc.login_X1(client)
                         if headers != {}:
                             client.setHearder(headers)
 
@@ -2400,7 +2942,7 @@ class CommonX1(Base):
 
 
     def getusergroup(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -2454,7 +2996,7 @@ class CommonX1(Base):
 
     def setusergroup(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -2474,7 +3016,7 @@ class CommonX1(Base):
 
     def editusergroup(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -2489,7 +3031,7 @@ class CommonX1(Base):
     def getuser(self, client, args):
         userinfo = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -2550,7 +3092,7 @@ class CommonX1(Base):
             userinfo.State('Failure')
             userinfo.Message(['Illegal password.'])
             return userinfo
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -2565,7 +3107,7 @@ class CommonX1(Base):
 
     # add new name pass email
     def setuser(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -2580,7 +3122,7 @@ class CommonX1(Base):
 
     def deluser(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -2595,7 +3137,7 @@ class CommonX1(Base):
 
     def edituser(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -2612,7 +3154,7 @@ class CommonX1(Base):
         result = ResultBean()
         rule_result = UserRuleBean()
 
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -2655,7 +3197,7 @@ class CommonX1(Base):
         return result
 
     def setuserrule(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -2784,7 +3326,7 @@ class CommonX1(Base):
                 ["param date and count cannot be set together at one query"])
             return logres
 
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -2908,7 +3450,7 @@ class CommonX1(Base):
         return logres
 
     def geteventlogpolicy(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -2932,7 +3474,7 @@ class CommonX1(Base):
         return res
 
     def seteventlogpolicy(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -2998,7 +3540,7 @@ class CommonX1(Base):
                 ["param date and count cannot be set together at one query"])
             return nicRes
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -3175,7 +3717,7 @@ class CommonX1(Base):
                 ["param date and count cannot be set together at one query"])
             return nicRes
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -3298,7 +3840,7 @@ class CommonX1(Base):
 
     def getbmclogsettings(self, client, args):
         bmcresult = ResultBean()
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -3379,7 +3921,7 @@ class CommonX1(Base):
         return bmcresult
 
     def setbmclogcfg(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -3509,7 +4051,7 @@ class CommonX1(Base):
     def setbmclogsettings(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -3654,7 +4196,7 @@ class CommonX1(Base):
     def resetkvm(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -3677,7 +4219,7 @@ class CommonX1(Base):
     def resetbmc(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -3700,7 +4242,7 @@ class CommonX1(Base):
     def getldap(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -3737,7 +4279,7 @@ class CommonX1(Base):
     def setldap(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -3880,7 +4422,7 @@ class CommonX1(Base):
 
     def getldapgroup(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -3894,7 +4436,7 @@ class CommonX1(Base):
 
     def addldapgroup(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -3908,7 +4450,7 @@ class CommonX1(Base):
 
     def setldapgroup(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -3922,7 +4464,7 @@ class CommonX1(Base):
 
     def delldapgroup(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -3936,7 +4478,7 @@ class CommonX1(Base):
 
     def editldapgroup(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -3951,7 +4493,7 @@ class CommonX1(Base):
     def getad(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -3987,7 +4529,7 @@ class CommonX1(Base):
     def setad(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -4091,7 +4633,7 @@ class CommonX1(Base):
 
     def getadgroup(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -4105,7 +4647,7 @@ class CommonX1(Base):
 
     def addadgroup(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -4119,7 +4661,7 @@ class CommonX1(Base):
 
     def setadgroup(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -4133,7 +4675,7 @@ class CommonX1(Base):
 
     def deladgroup(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -4147,7 +4689,7 @@ class CommonX1(Base):
 
     def editadgroup(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -4247,7 +4789,7 @@ class CommonX1(Base):
 
         # check param end
 
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -4288,64 +4830,10 @@ class CommonX1(Base):
         RestFunc.logout(client)
         return bmcres
 
-    # def getpreserveconfig(self, client, args):
-    #     result = ResultBean()
-    #     # login
-    #     headers = RestFunc.login_M6(client)
-    #     if headers == {}:
-    #         login_res = ResultBean()
-    #         login_res.State("Failure")
-    #         login_res.Message(
-    #             ["login error, please check username/password/host/port"])
-    #         return login_res
-    #     client.setHearder(headers)
-    #
-    #     res = RestFunc.getPreserveConfig(client)
-    #     if res.get('code') == 0 and res.get('data') is not None:
-    #         pre_cfg = res.get('data')
-    #         result.State("Success")
-    #         result.Message([{"PreserveConfig": pre_cfg}])
-    #     else:
-    #         result.State("Failure")
-    #         result.Message([res.get('data')])
-    #
-    #     RestFunc.logout(client)
-    #     return result
-    #
-    # def preserveconfig(self, client, args):
-    #     result = ResultBean()
-    #     # login
-    #     headers = RestFunc.login_M6(client)
-    #     if headers == {}:
-    #         login_res = ResultBean()
-    #         login_res.State("Failure")
-    #         login_res.Message(
-    #             ["login error, please check username/password/host/port"])
-    #         return login_res
-    #     client.setHearder(headers)
-    #     if args.setting == 'all':
-    #         override = 1
-    #     elif args.setting == 'none':
-    #         override = 0
-    #     else:
-    #         override = args.override
-    #     # overide 1改写  0保留    list [fru,sdr]中的为保留的
-    #     res = RestFunc.preserveBMCConfig(client, override)
-    #     if res.get('code') == 0 and res.get('data') is not None:
-    #         pre_cfg = res.get('data')
-    #         result.State("Success")
-    #         result.Message(["set preserve config success."])
-    #     else:
-    #         result.State("Failure")
-    #         result.Message([res.get('data')])
-    #
-    #     RestFunc.logout(client)
-    #     return result
-
     def restorefactorydefaults(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -4376,7 +4864,7 @@ class CommonX1(Base):
     def getvirtualmedia(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -4430,7 +4918,7 @@ class CommonX1(Base):
     def setvirtualmediaT6(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -4531,7 +5019,7 @@ class CommonX1(Base):
     def setvirtualmedia(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -4650,7 +5138,7 @@ class CommonX1(Base):
     def getmediainstance(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -4685,7 +5173,7 @@ class CommonX1(Base):
     def setmediainstance(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -4788,7 +5276,7 @@ class CommonX1(Base):
                              }
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -4827,7 +5315,7 @@ class CommonX1(Base):
 
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -4885,7 +5373,7 @@ class CommonX1(Base):
         enable_dict = {1: "Enable", 0: "Disable"}
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -4948,7 +5436,7 @@ class CommonX1(Base):
         enable_dict = {"enable": 1, "disable": 0}
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -5041,7 +5529,7 @@ class CommonX1(Base):
     def getselftest(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -5076,7 +5564,7 @@ class CommonX1(Base):
     def getscreen(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -5105,7 +5593,7 @@ class CommonX1(Base):
     def setscreen(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -5188,7 +5676,7 @@ class CommonX1(Base):
 
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -5211,7 +5699,7 @@ class CommonX1(Base):
     def screenmanual(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -5293,7 +5781,7 @@ class CommonX1(Base):
 
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -5316,7 +5804,7 @@ class CommonX1(Base):
     def getpowerstatus(self, client, args):
         result = ResultBean()
         power_result = PowerStatusBean()
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -5346,7 +5834,7 @@ class CommonX1(Base):
     def getuptime(self, client, args):
         result = ResultBean()
         time_result = UpTimeBean()
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -5380,7 +5868,7 @@ class CommonX1(Base):
         return result
 
     def getip(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -5451,7 +5939,7 @@ class CommonX1(Base):
     def getsessions(self, client, args):
         result = ResultBean()
 
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -5486,7 +5974,7 @@ class CommonX1(Base):
 
     def delsession(self, client, args):
         result = ResultBean()
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -5561,7 +6049,7 @@ class CommonX1(Base):
         :param args:
         :return:
         '''
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -5650,20 +6138,16 @@ class CommonX1(Base):
                     cpu_singe.ProcessorArchitecture('x86')
                     instructionSet = 'x86-64'
                     if 'InstructionSet' in cpu:
-                        #M6 新版本
                         instructionSet = cpu.get('InstructionSet')
                     elif 'instruct_set' in cpu:
-                        #M7
                         instructionSet = cpu.get('instruct_set')
                     cpu_singe.InstructionSet(instructionSet)
                     cpu_singe.ProSpeedMHz(cpu.get('proc_speed', None))
 
                     maxspeed = None
                     if 'MaxSpeedMHz' in cpu:
-                        #M6 新版本
                         maxspeed = cpu.get('MaxSpeedMHz')
                     elif 'max_speed' in cpu:
-                        #M7
                         maxspeed = cpu.get('max_speed')
                     cpu_singe.MaxSpeedMHz(maxspeed)
                     cpu_singe.TotalCores(cpu.get('proc_used_core_count', None))
@@ -5674,10 +6158,8 @@ class CommonX1(Base):
                     cpu_singe.TDP(cpu.get('proc_tdp'))
                     mc = None
                     if 'micro_code' in cpu:
-                        #M6 新版本
                         mc = cpu.get('micro_code')
                     elif 'micro_code_ver' in cpu:
-                        #M7
                         mc = cpu.get('micro_code_ver')
                     cpu_singe.MicroCode(mc)
                     cpu_singe.State('Enabled')
@@ -5711,7 +6193,7 @@ class CommonX1(Base):
         :param args:
         :return:
         '''
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -5799,10 +6281,8 @@ class CommonX1(Base):
                     else:
                         memory_singe.PartNumber(None)
                     if 'mem_base_module' in memory:
-                        # M7
                         memory_singe.BaseModule(memory.get('mem_base_module', None))
                     elif 'mem_mod_BaseModuleType' in memory:
-                        # M6新版本
                         memory_singe.BaseModule(memory.get('mem_mod_BaseModuleType', None))
                     memory_singe.Technology(
                         memory.get('mem_mod_technology', None))
@@ -5852,7 +6332,7 @@ class CommonX1(Base):
         return result
 
     def getfan(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -5972,7 +6452,7 @@ class CommonX1(Base):
 
 
     def getharddisk(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -6026,7 +6506,7 @@ class CommonX1(Base):
         return result
 
     def gethardboard(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -6067,7 +6547,7 @@ class CommonX1(Base):
         return result
 
     def gethdddisk(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -6107,13 +6587,11 @@ class CommonX1(Base):
                     hdd_dict['Firmware'] = str(item['firmware']).strip()
                 if "location" in item:
                     hdd_dict['Location'] = str(item['location']).strip()
-                    # 比M6多位置字段
                 if "locationstring" in item:
                     hdd_dict['Location'] = str(item['locationstring']).strip()
                 if "manufacture" in item:
                     hdd_dict['Manufacture'] = str(item['manufacture']).strip()
                 if "capablespeed" in item:
-                    # 比M6多最大速率字段
                     hdd_dict['CapableSpeed'] = str(item['capablespeed']).strip()
                 hdd_list.append(hdd_dict)
             result.State("Success")
@@ -6125,7 +6603,7 @@ class CommonX1(Base):
         return result
 
     def getbackplane(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -6175,7 +6653,7 @@ class CommonX1(Base):
                 return hex(id)
             else:
                 return None
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -6247,7 +6725,7 @@ class CommonX1(Base):
         return result
 
     def getnic(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -6356,7 +6834,7 @@ class CommonX1(Base):
     def getbmcnic(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -6393,7 +6871,7 @@ class CommonX1(Base):
         return result
 
     def getpsu(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -6516,7 +6994,7 @@ class CommonX1(Base):
         return psu_return
 
     def getsensor(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -6602,7 +7080,7 @@ class CommonX1(Base):
         return result
 
     def gettemp(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -6676,7 +7154,7 @@ class CommonX1(Base):
 
 
     def getvolt(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -6751,7 +7229,7 @@ class CommonX1(Base):
 
     def getuid(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -6794,7 +7272,7 @@ class CommonX1(Base):
             "blink_time": BlinkTime
         }
 
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -6831,7 +7309,7 @@ class CommonX1(Base):
             'GracefulShutdown': 'shutdown'
         }
         args.state = choices.get(args.state)
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -6930,7 +7408,7 @@ class CommonX1(Base):
         return flag
 
     def getnetwork(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -7004,9 +7482,8 @@ class CommonX1(Base):
         RestFunc.logout(client)
         return ipinfo
 
-    # M6 只支持disable enable 参数不全 所以用setipv4/6
     def setnetwork(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -7099,7 +7576,7 @@ class CommonX1(Base):
             return ipinfo
 
     def setipv4(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -7234,7 +7711,7 @@ class CommonX1(Base):
             return ipinfo
 
     def setipv6(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -7392,7 +7869,7 @@ class CommonX1(Base):
             return None
 
     def setvlan(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -7509,7 +7986,7 @@ class CommonX1(Base):
             return ipinfo
 
     def getdns(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -7582,7 +8059,7 @@ class CommonX1(Base):
         return result
 
     def setdns(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -8054,7 +8531,7 @@ class CommonX1(Base):
         return result
 
     def getservice(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -8140,7 +8617,7 @@ class CommonX1(Base):
             return set_result
         if args.servicename == 'fd-media' or args.servicename == 'telnet' or args.servicename == 'snmp':
             set_result.State("Not Support")
-            set_result.Message(['The M6 model does not support this feature.'])
+            set_result.Message(['The X1 model does not support this feature.'])
             return set_result
         if args.servicename == 'ssh':
             if args.nonsecureport is not None:
@@ -8222,7 +8699,7 @@ class CommonX1(Base):
                 set_result.Message(["The timeout(-T) are not support to set."])
                 return set_result
         # 获取信息
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -8365,7 +8842,7 @@ class CommonX1(Base):
             return set_result
 
     def gettime(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -8460,7 +8937,7 @@ class CommonX1(Base):
             timeinfo.State("Failure")
             timeinfo.Message(["No setting changed"])
             return timeinfo
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -8668,7 +9145,7 @@ class CommonX1(Base):
 
     def gettrap(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -8764,7 +9241,7 @@ class CommonX1(Base):
 
     def settrapcom(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -9053,7 +9530,7 @@ class CommonX1(Base):
         else:
             args.destinationid = args.destinationid - 1
 
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -9173,7 +9650,7 @@ class CommonX1(Base):
 
     def getsmtp(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -9243,7 +9720,7 @@ class CommonX1(Base):
 
     def setsmtpcom(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -9444,7 +9921,7 @@ class CommonX1(Base):
             result.State("Failure")
             result.Message(['nothing to change.'])
             return result
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -9515,7 +9992,7 @@ class CommonX1(Base):
         else:
             args.destinationid = args.destinationid - 1
 
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -9616,7 +10093,7 @@ class CommonX1(Base):
 
     def getsnmp(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -9656,7 +10133,7 @@ class CommonX1(Base):
 
     def setsnmp(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -9831,7 +10308,7 @@ class CommonX1(Base):
                 result.Message(['Manual must be used with fanspeedlevel '])
                 return result
 
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -10003,7 +10480,7 @@ class CommonX1(Base):
 
     def getnetworkadaptivecfg(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -10035,7 +10512,7 @@ class CommonX1(Base):
 
     def getncsirange(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -10075,7 +10552,7 @@ class CommonX1(Base):
     def getsysboot(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -10103,29 +10580,8 @@ class CommonX1(Base):
         devdict = {"none": "none", "PXE": "pxe", "HDD": "disk", "BIOSSETUP": "bios", "CD": "cdrom"}
         if args.device not in devdict.keys():
             result.State("Failure")
-            result.Message(["The boot Device option {} is not supported on the M6 model.".format(args.device)])
+            result.Message(["The boot Device option {} is not supported on The X1 model.".format(args.device)])
             return result
-        # login
-        # headers = RestFunc.login_M6(client)
-        # if headers == {}:
-        #     login_res = ResultBean()
-        #     login_res.State("Failure")
-        #     login_res.Message(
-        #         ["login error, please check username/password/host/port"])
-        #     return login_res
-        # client.setHearder(headers)
-        # data = {"dev": devdict.get(args.device), "enable": 1, "style": timedict.get(args.effective)}
-        # set_res = RestFunc.setBootOption(client, data)
-        #
-        # if set_res.get('code') == 0:
-        #     result.State("Success")
-        #     result.Message(["set bios boot option success."])
-        # else:
-        #     result.State("Failure")
-        #     result.Message(
-        #         ["set bios boot option failed. " + set_res.get('data')])
-        #
-        # RestFunc.logout(client)
         timetype = timedict.get(args.effective, 'once')
         res = IpmiFunc.setBootOptions(client, devdict.get(args.device), timetype)
         if res.get('code') == 0:
@@ -10138,7 +10594,7 @@ class CommonX1(Base):
 
     def setnetworkadaptivecfg(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -10262,7 +10718,7 @@ class CommonX1(Base):
     def getraid(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -10286,7 +10742,7 @@ class CommonX1(Base):
     def getpdisk(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -10310,7 +10766,7 @@ class CommonX1(Base):
     def getldisk(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -10334,7 +10790,7 @@ class CommonX1(Base):
     def setpdisk(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -10366,7 +10822,7 @@ class CommonX1(Base):
             locate_Info.Message(['pid is needed.'])
             return locate_Info
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -10464,7 +10920,7 @@ class CommonX1(Base):
     def setldisk(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -10497,7 +10953,7 @@ class CommonX1(Base):
             locate_Info.Message(['lid is needed.'])
             return locate_Info
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -10564,7 +11020,7 @@ class CommonX1(Base):
             locate_Info.Message(['cid is needed.'])
             return locate_Info
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -10593,7 +11049,7 @@ class CommonX1(Base):
     def addldisk(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -10636,7 +11092,7 @@ class CommonX1(Base):
             data["pdDeviceIndex" + str(i)] = args.pdlist[i]
 
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -10669,7 +11125,7 @@ class CommonX1(Base):
         :return:
         '''
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         client.setHearder(headers)
         product_Result = ResultBean()
         product_Info = ProductBean()
@@ -10817,7 +11273,7 @@ class CommonX1(Base):
 
     def getncsi(self, client, args):
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -10871,7 +11327,7 @@ class CommonX1(Base):
                 ncsiinfo.Message(["set ncsi disable failed."])
             return ncsiinfo
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -11030,7 +11486,7 @@ class CommonX1(Base):
     def getnetworkbond(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -11053,7 +11509,7 @@ class CommonX1(Base):
     def setnetworkbond(self, client, args):
         result = ResultBean()
         # login
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -11095,157 +11551,157 @@ class CommonX1(Base):
     def getbootimage(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def setbootimage(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def collectblackbox(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def getpowerconsumption(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def getpsupeak(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def getthreshold(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def setthreshold(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     # def setad(self, client, args):
     #     result = ResultBean()
     #     result.State("Not Support")
-    #     result.Message(['The M6 model does not support this feature.'])
+    #     result.Message(['The X1 model does not support this feature.'])
     #     return result
     #
     # def editadgroup(self, client, args):
     #     result = ResultBean()
     #     result.State("Not Support")
-    #     result.Message(['The M6 model does not support this feature.'])
+    #     result.Message(['The X1 model does not support this feature.'])
     #     return result
     #
     # def setldap(self, client, args):
     #     result = ResultBean()
     #     result.State("Not Support")
-    #     result.Message(['The M6 model does not support this feature.'])
+    #     result.Message(['The X1 model does not support this feature.'])
     #     return result
     #
     # def editldapgroup(self, client, args):
     #     result = ResultBean()
     #     result.State("Not Support")
-    #     result.Message(['The M6 model does not support this feature.'])
+    #     result.Message(['The X1 model does not support this feature.'])
     #     return result
     #
     # def addadgroup(self, client, args):
     #     result = ResultBean()
     #     result.State("Not Support")
-    #     result.Message(['The M6 model does not support this feature.'])
+    #     result.Message(['The X1 model does not support this feature.'])
     #     return result
     #
     # def setadgroup(self, client, args):
     #     result = ResultBean()
     #     result.State("Not Support")
-    #     result.Message(['The M6 model does not support this feature.'])
+    #     result.Message(['The X1 model does not support this feature.'])
     #     return result
     #
     # def deladgroup(self, client, args):
     #     result = ResultBean()
     #     result.State("Not Support")
-    #     result.Message(['The M6 model does not support this feature.'])
+    #     result.Message(['The X1 model does not support this feature.'])
     #     return result
     #
     # def addldapgroup(self, client, args):
     #     result = ResultBean()
     #     result.State("Not Support")
-    #     result.Message(['The M6 model does not support this feature.'])
+    #     result.Message(['The X1 model does not support this feature.'])
     #     return result
     #
     # def setldapgroup(self, client, args):
     #     result = ResultBean()
     #     result.State("Not Support")
-    #     result.Message(['The M6 model does not support this feature.'])
+    #     result.Message(['The X1 model does not support this feature.'])
     #     return result
     #
     # def delldapgroup(self, client, args):
     #     result = ResultBean()
     #     result.State("Not Support")
-    #     result.Message(['The M6 model does not support this feature.'])
+    #     result.Message(['The X1 model does not support this feature.'])
     #     return result
 
     def clearauditlog(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def clearsystemlog(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def getnetworklink(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def setnetworklink(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def getpowerrestore(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def setpowerrestore(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def setpsupeak(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def getpreserveconfig(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def preserveconfig(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def getgpu(self, client, args):
@@ -11288,20 +11744,146 @@ class CommonX1(Base):
         res.Message([message])
         return res
 
+    def exportbioscfg(self, client, args):
+        import time
+        def ftime(ff="%Y%m%d%H%M%S"):
+            try:
+                localtime = time.localtime()
+                f_localtime = time.strftime(ff, localtime)
+                return f_localtime
+            except:
+                return ""
+
+        res = ResultBean()
+        try:
+            login_header, login_id = RedfishFunc.login(client)
+            if login_header == {} or "login error" in login_id or login_id == '':
+                res.State("Failure")
+                res.Message(['login session service failed.'])
+                return res
+
+            local_time = ftime()
+            file_name_init = str(args.host) + "_bios_" + str(local_time) + ".conf"
+            if args.fileurl == ".":
+                file_name = file_name_init
+                file_path = os.path.abspath(".")
+            elif args.fileurl == "..":
+                file_name = file_name_init
+                file_path = os.path.abspath("..")
+            elif re.search("^[C-Zc-z]\:$", args.fileurl, re.I):
+                file_name = file_name_init
+                file_path = os.path.abspath(args.fileurl + "\\")
+            else:
+                file_name = os.path.basename(args.fileurl)
+                file_path = os.path.dirname(args.fileurl)
+
+                if file_name == "":
+                    file_name = file_name_init
+                if file_path == "":
+                    file_path = os.path.abspath(".")
+
+            args.fileurl = os.path.join(file_path, file_name)
+
+            if not os.path.exists(file_path):
+                try:
+                    os.makedirs(file_path)
+                except:
+                    res.State("Failure")
+                    res.Message(["cannot build path."])
+                    return res
+            else:
+                filename_0 = os.path.splitext(file_name)[0]
+                filename_1 = os.path.splitext(file_name)[1]
+                if os.path.exists(args.fileurl):
+                    name_id = 1
+                    name_new = filename_0 + "(1)" + filename_1
+                    file_new = os.path.join(file_path, name_new)
+                    while os.path.exists(file_new):
+                        name_id = name_id + 1
+                        name_new = filename_0 + "(" + str(name_id) + ")" + filename_1
+                        file_new = os.path.join(file_path, name_new)
+                    args.fileurl = file_new
+
+            result = RedfishFunc.exportbiosoption(client, login_header)
+            if result.get('code') == 0 and result.get('data') is not None:
+                option = result.get('data')#['Attributes']
+                with open(args.fileurl, mode='w') as f:
+                    f.write(json.dumps(option, indent=4))
+                res.State("Success")
+                res.Message(["Export file in " + str(args.fileurl)])
+            else:
+                res.State("Failure")
+                res.Message([result.get('data')])
+            RedfishFunc.logout(client, login_id, login_header)
+            return res
+        except Exception as e:
+            res = ResultBean()
+            res.State("Failure")
+            res.Message([str(e)])
+            RedfishFunc.logout(client, login_id, login_header)
+            return res
+
+    def checkBiosCfg(self, biospath):
+        res = ResultBean()
+        if not os.path.exists(biospath):
+            res.State("Failure")
+            res.Message(["File does not exist."])
+            return res
+        if not os.path.isfile(biospath):
+            res.State("Failure")
+            res.Message(["Not a valid file."])
+            return res
+        with open(biospath, 'r') as f:
+            biosInfo = f.read()
+            try:
+                biosJson = json.loads(biosInfo)
+                if biosJson.get("Attributes") is None:
+                    res.State("Failure")
+                    res.Message(["The bios json file needs an Attributes layer."])
+                else:
+                    res.State("Success")
+                    res.Message([""])
+            except Exception as e:
+                res.State("Failure")
+                res.Message(["File content must be in json format."])
+            return res
+
+    def importbioscfg(self, client, args):
+        checkres = self.checkBiosCfg(args.fileurl)
+        if checkres.State == "Failure":
+            return checkres
+        res = ResultBean()
+        login_header, login_id = RedfishFunc.login(client)
+        if login_header == {} or "login error" in login_id or login_id == '':
+            res.State("Failure")
+            res.Message(['login session service failed.'])
+            return
+
+        result = RedfishFunc.importbiosoption(client, login_header, args.fileurl)
+        if result.get('code') == 0 and result.get('data') is not None:
+            res.State("Success")
+            res.Message([result.get('data')])
+        else:
+            res.State("Failure")
+            res.Message([result.get('data')])
+        RedfishFunc.logout(client, login_id, login_header)
+        return res
+
+
     def setsmtp(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def remoteFWUpdate(self, client, args):
         result = ResultBean()
         result.State("Not Support")
-        result.Message(['The M6 model does not support this feature.'])
+        result.Message(['The X1 model does not support this feature.'])
         return result
 
     def gethba(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -11351,7 +11933,7 @@ class CommonX1(Base):
         return result
 
     def getssl(self, client, args):
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -11428,7 +12010,7 @@ class CommonX1(Base):
             res.State("Failure")
             res.Message(["ValidTime should be within the range of 1 to 3650 days"])
             return res
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -11478,7 +12060,7 @@ class CommonX1(Base):
             res.State("Failure")
             res.Message(["All the parameters must not be left blank."])
             return res
-        headers = RestFunc.login_M6(client)
+        headers = RestFunc.login_X1(client)
         if headers == {}:
             login_res = ResultBean()
             login_res.State("Failure")
@@ -12769,7 +13351,7 @@ def editLDAPGroup(client, args):
 def addUserGroup(client, args):
     result = ResultBean()
     result.State("Failure")
-    result.Message(["M6 models only support user group names OEM1\\OEM2\\OEM3\\OEM4"])
+    result.Message(["X1 models only support user group names OEM1\\OEM2\\OEM3\\OEM4"])
     return result
 
 
@@ -13614,103 +14196,3 @@ PcieLocateOnRiser = {
     14: "PCIE1_CPU0/1_NVME1",
     0xFF: "None"
 }
-
-if __name__ == "__main__":
-    # class tex():
-    #     def service(self,value):
-    #         tex.service = value
-    #     def enabled(self,value):
-    #         tex.enabled = value
-    #     def port(self,value):
-    #         tex.port = value
-    #     def port2(self,value):
-    #         tex.port2 = value
-    #     def sslenable(self,value):
-    #         tex.sslenable = value
-    class tex():
-        def image(self, value):
-            tex.image = value
-
-        def operatortype(self, value):
-            tex.operatortype = value
-
-    client = RequestClient.RequestClient()
-    client.setself("100.2.39.104", "root", "root", 0, "lanplus")
-    # client.setself("100.2.73.207","admin","admin",0,"lanplus")
-    # client.setself("100.2.73.207","root","root",0,"lanplus")
-    # client.setself("100.2.73.172","root","root",0,"lanplus")
-    print(
-        client.host,
-        client.username,
-        client.passcode,
-        client.lantype,
-        client.port)
-    com5 = Common()
-    args = tex()
-    # args.service('kvm')
-    # args.enabled(None)
-    # args.port(None)
-    # args.port2(7578)
-    # args.sslenable(None)
-    args.image(
-        'protocol://[root:test@2018@]100.2.28.203[:22]/data/nfs/server/CentOS-7-x86_64-Everything-1511')
-    args.operatortype('Mount')
-    # args.image(None)
-    # res= com5.getproduct(client,args)
-    # res= com5.getraid(client,args)
-    # res= com5.getpdisk(client,args)
-    # res= com5.getpcie(client,args)
-    # res= com5.getpsu(client,args)
-    # res= com5.getcpu(client,args)
-    # res= com5.getmemory(client,args)
-    res = com5.gettemp(client, args)
-    # res= com5.gethealth(client,args)
-    # res= com5.getfan(client,args)
-    # res= com5.getsensor(client,args)
-    # res= com5.mountvmm(client,args)
-    # res= com5.getbios(client,args)
-    # res= com5.getldisk(client,args)
-    # a=com5.locatedisk(client, args)
-    # a=com5.setservice(client, args)
-    # a=com5.setservice(client, args)
-    # a=com5.getfw(client, args)
-    # a = com5.getfw(client, None)
-    # args = tex()
-    # args.state('on')
-    # args.frequency(10)
-    # a = com5.locateserver(client, args)
-    print(
-        json.dumps(
-            res,
-            default=lambda o: o.__dict__,
-            sort_keys=True,
-            indent=4))
-
-    '''
-    data = {
-        "username": strAsciiHex("admin"),
-        "password": strAsciiHex("admin"),
-        "encrypt_flag": 1
-    }
-    response=client.request("POST", "api/session", data=data)
-    headers={}
-    if response is not None and response.status_code == 200:
-        headers = {
-            "X-CSRFToken": response.json()["CSRFToken"],
-            "Cookie": response.headers["set-cookie"]
-        }
-    else:
-        print ("Failure: get token error")
-    client.setHearder(headers)
-    print (headers)
-    com5 = CommonM5()
-    a=com5.getip(client, None)
-    print(json.dumps(a, default=lambda o: o.__dict__, sort_keys=True, indent=4))
-    #执行完退出
-    responds = client.request("DELETE", "api/session", client.getHearder())
-    if responds is not None and responds.status_code == 200:
-        print ("log out ok")
-    else:
-        print ("Failure: logout error" + responds.json()['error'])
-            timeinfo.State("Failure")
-    '''
